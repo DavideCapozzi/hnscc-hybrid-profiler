@@ -1,3 +1,93 @@
+# R/modules_qc.R
+# ==============================================================================
+# QUALITY CONTROL MODULE
+# Description: Functions for data filtering (Variance, Missingness, Outliers).
+# ==============================================================================
+
+#' @title Detect Multivariate Outliers (PCA-based Mahalanobis)
+#' @description 
+#' Identifies outliers within specific groups using Robust Mahalanobis distance 
+#' calculated on the first Principal Components (PCs).
+#' 
+#' @param mat Numeric matrix (Samples x Markers).
+#' @param groups Vector of group labels corresponding to rows of mat.
+#' @param conf_level Confidence level for Chi-squared cutoff (default 0.99).
+#' @return A logical vector (TRUE = Outlier, FALSE = Keep).
+detect_pca_outliers <- function(mat, groups, conf_level = 0.99) {
+  
+  is_outlier <- rep(FALSE, nrow(mat))
+  
+  # Ensure groups are factors
+  groups <- as.factor(groups)
+  
+  for (g in levels(groups)) {
+    # Get indices for current group
+    idx <- which(groups == g)
+    
+    # Skip if too few samples (need at least 5 for PCA/Covariance stability)
+    if (length(idx) < 5) {
+      next
+    }
+    
+    sub_mat <- mat[idx, , drop = FALSE]
+    
+    # 1. Handle NAs: First remove columns that are 100% NA in this subgroup
+    na_counts <- colSums(is.na(sub_mat))
+    valid_cols <- na_counts < nrow(sub_mat)
+    sub_mat <- sub_mat[, valid_cols, drop = FALSE]
+    
+    if (ncol(sub_mat) < 2) next
+    
+    # 2. Impute remaining sporadic NAs (Median Imputation)
+    if (any(is.na(sub_mat))) {
+      sub_mat <- apply(sub_mat, 2, function(x) {
+        if (all(is.na(x))) return(x) 
+        x[is.na(x)] <- median(x, na.rm = TRUE)
+        return(x)
+      })
+    }
+    
+    # 3. Remove zero-variance columns locally (Robust check)
+    vars <- apply(sub_mat, 2, var, na.rm = TRUE)
+    keep_vars <- !is.na(vars) & vars > 1e-12
+    
+    sub_mat <- sub_mat[, keep_vars, drop = FALSE]
+    
+    if (ncol(sub_mat) < 2) next 
+    
+    # Run PCA 
+    tryCatch({
+      pca_res <- prcomp(sub_mat, scale. = TRUE, center = TRUE)
+      
+      max_available_pcs <- ncol(pca_res$x)
+      n_pc <- min(ncol(sub_mat), length(idx) - 2, 5) 
+      
+      if (n_pc > max_available_pcs) n_pc <- max_available_pcs
+      if (n_pc < 1) n_pc <- 1
+      
+      scores <- pca_res$x[, 1:n_pc, drop = FALSE]
+      
+      # Calculate Robust Mahalanobis Distance
+      center_vec <- colMeans(scores)
+      cov_mat <- cov(scores)
+      
+      d2 <- mahalanobis(scores, center_vec, cov_mat)
+      
+      # Cutoff based on Chi-Squared distribution
+      cutoff <- qchisq(conf_level, df = n_pc)
+      
+      # Flag local outliers
+      local_outliers <- d2 > cutoff
+      is_outlier[idx[local_outliers]] <- TRUE
+      
+    }, error = function(e) {
+      warning(sprintf("[QC] Outlier detection failed for group '%s': %s", g, e$message))
+    })
+  }
+  
+  return(is_outlier)
+}
+
 #' @title Run Quality Control Pipeline (Hybrid Version)
 #' @description 
 #' Filters the data matrix based on variance, missingness, and multivariate outliers.
@@ -126,7 +216,6 @@ run_qc_pipeline <- function(mat_raw, metadata, qc_config,
     qc_summary$dropped_cols_detail <- do.call(rbind, drop_col_details)
     qc_summary$n_col_dropped <- length(drop_col_idx)
     
-    # Safely remove columns
     keep_cols <- setdiff(colnames(curr_mat), drop_col_idx)
     curr_mat <- curr_mat[, keep_cols, drop = FALSE]
   }

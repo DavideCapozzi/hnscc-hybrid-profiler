@@ -440,8 +440,8 @@ plot_pca_variance_dashboard <- function(pca_res, n_list = 10) {
     geom_bar(stat = "identity", fill = "steelblue", alpha = 0.7, width = 0.7) +
     
     # B. The Curve (Scree line connecting bars)
-    geom_line(aes(group = 1), color = "darkred", size = 1, linetype = "dashed") +
-    geom_point(color = "darkred", size = 2) +
+    geom_line(aes(group = 1), color = "darkred", linewidth = 1, linetype = "dashed") +
+    geom_point(color = "darkred", size = 2) + # Point size remains 'size'
     
     # C. Labels above histograms
     geom_text(aes(label = sprintf("%.1f%%", variance_percent)), 

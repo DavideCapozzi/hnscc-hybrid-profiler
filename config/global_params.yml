@@ -4,30 +4,45 @@
 
 # --- System Setup ---
 output_root: "results"
-project_name: "hnscc_response"
-input_file: "data/hybrid_dataset.xlsx"
+project_name: "results-hnscc"
+input_file: "data/Dati_HNSCC_standardizzati.xlsx"
 
 # --- Clinical Grouping ---
 # Define the column that contains the clinical outcome and the target labels
 clinical:
   target_column: "Clinical_Response"
-  responder_label: "Responder"
-  non_responder_label: "Non_Responder"
+  responder_label: "R"
+  non_responder_label: "NR"
 
 # --- Data Dictionaries (Hybrid Logic) ---
 # Explicitly define which columns belong to which assay. 
 # Markers not listed here will be ignored.
 features:
   facs:
-    - "CD3"
-    - "CD4"
-    - "CD8"
-    # ADD YOUR FACS MARKERS HERE
+    - "M_MDSC"
+    - "LOX1_PMN_MDSC"
+    - "T_reg"
+    - "Resting"
+    - "Active"
+    - "Non_suppressive"
+    - "TregCD137"
+    - "CD3_CD137"
+    - "CD8_CD137"
+    - "CD4_CD137"
   soluble:
-    - "IL6"
-    - "IFNg"
-    - "TNFa"
-    # ADD YOUR SOLUBLE MARKERS HERE
+    - "sBTLA"
+    - "sCD137"
+    - "sCD152"
+    - "sCD27"
+    - "sCD28"
+    - "sGITR"
+    - "IDO"
+    - "sLAG3"
+    - "sPD1"
+    - "sPDL_2"
+    - "sTIM3"
+    - "sCD80"
+    - "sHVEM"
 
 # --- Quality Control ---
 qc:
@@ -42,7 +57,7 @@ transformation:
   facs_method: "logit"       # Transforms 0-100 percentages to unbounded space
   facs_format: "percentage"  
   soluble_method: "log2"     # Options: "log2" or "none" (for solubles)
-  epsilon: "auto"            # Data-driven pseudo-count for 0s or LODs
+  epsilon: 1e-4         # Data-driven pseudo-count for 0s or LODs
 
 stats:
   seed: 2026

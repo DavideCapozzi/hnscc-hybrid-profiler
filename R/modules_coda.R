@@ -1,3 +1,121 @@
+# R/modules_coda.R
+# ==============================================================================
+# DATA TRANSFORMATION MODULE
+# Description: Handling imputation (BPCA) and transformation (Logit & Log2).
+# Dependencies: dplyr, pcaMethods
+# ==============================================================================
+
+library(dplyr)
+
+# --- HELPER FUNCTIONS ---
+
+#' @title Internal Median Fallback Helper
+#' @description Fills NAs with column medians. Used when BPCA fails.
+#' @param mat Numeric matrix.
+#' @return Numeric matrix with NAs filled.
+.impute_fallback_median <- function(mat) {
+  apply(mat, 2, function(x) {
+    if(all(is.na(x))) return(rep(0, length(x))) 
+    x[is.na(x)] <- median(x, na.rm = TRUE)
+    return(x)
+  })
+}
+
+# --- MAIN FUNCTIONS ---
+
+#' @title Bayesian PCA Imputation (Robust & Fail-Safe)
+#' @description Imputes missing values using Bayesian PCA.
+#' @param mat Numeric matrix (samples x markers).
+#' @param nPcs Number of components. "auto" uses kEstimate (CV).
+#' @param seed Integer. Seed for reproducibility.
+#' @return A numeric matrix with NAs filled.
+#' @export
+impute_matrix_bpca <- function(mat, nPcs = "auto", seed = 123) {
+  
+  if (!any(is.na(mat)) && !any(is.infinite(mat))) return(mat)
+  
+  if (nrow(mat) < 5 || ncol(mat) < 2) {
+    warning("[Impute] Matrix too small (<5 samples or <2 cols). Falling back to Median.")
+    return(.impute_fallback_median(mat)) 
+  }
+  
+  mat[is.infinite(mat)] <- NA
+  
+  if (!requireNamespace("pcaMethods", quietly = TRUE)) stop("Package 'pcaMethods' required.")
+  
+  vars <- apply(mat, 2, var, na.rm = TRUE)
+  is_const <- !is.na(vars) & (vars < 1e-12)
+  const_cols <- names(which(is_const))
+  var_cols   <- names(which(!is_const))
+  
+  mat_bpca_in <- mat[, var_cols, drop = FALSE]
+  
+  if (ncol(mat_bpca_in) < 2) {
+    warning("[Impute] Too few variable columns after filtering. Using Median fallback.")
+    return(.impute_fallback_median(mat))
+  }
+  
+  hard_limit_k <- min(nrow(mat_bpca_in), ncol(mat_bpca_in)) - 1
+  if (hard_limit_k < 1) hard_limit_k <- 1
+  
+  k_used <- 2 
+  
+  if (is.null(nPcs) || nPcs == "auto") {
+    k_used <- tryCatch({
+      set.seed(seed)
+      max_k <- min(5, hard_limit_k)
+      
+      utils::capture.output({
+        k_est <- pcaMethods::kEstimate(mat_bpca_in, method = "bpca", evalPcs = 1:max_k, verbose = FALSE, scale = "none") 
+      })
+      suggested_k <- k_est$bestNPcs
+      
+      if (length(suggested_k) > 1) {
+        warning(sprintf("   [Impute] kEstimate ambiguous. Using conservative K=%d.", min(suggested_k)))
+        min(suggested_k)
+      } else if (length(suggested_k) == 0 || is.na(suggested_k)) {
+        2
+      } else if (suggested_k > hard_limit_k) {
+        hard_limit_k
+      } else {
+        suggested_k
+      }
+    }, error = function(e) {
+      warning("   [Impute] kEstimate failed. Falling back to K=2.")
+      2 
+    })
+  } else {
+    k_used <- as.numeric(nPcs)
+  }
+  
+  if (k_used > hard_limit_k) k_used <- hard_limit_k
+  
+  mat_bpca_out <- mat_bpca_in 
+  
+  tryCatch({
+    set.seed(seed)
+    res_bpca <- pcaMethods::pca(mat_bpca_in, method = "bpca", nPcs = k_used, verbose = FALSE)
+    mat_bpca_out <- as.matrix(pcaMethods::completeObs(res_bpca))
+    
+  }, error = function(e) {
+    warning(sprintf("   [Impute] BPCA execution failed. Applying Median Fallback."))
+    mat_bpca_out <<- .impute_fallback_median(mat_bpca_in)
+  })
+  
+  mat_final <- mat 
+  mat_final[, var_cols] <- mat_bpca_out
+  
+  if (length(const_cols) > 0) {
+    for (col in const_cols) {
+      val <- mean(mat[, col], na.rm = TRUE)
+      if (is.na(val)) val <- 0 
+      mat_final[is.na(mat_final[, col]), col] <- val
+    }
+  }
+  
+  return(mat_final)
+}
+
 #' @title Robust Logit Transformation
 #' @description 
 #' Transforms values into Logit space (Log-Odds).
@@ -17,7 +135,7 @@ coda_transform_logit <- function(mat, epsilon = 1e-6, input_type = "percentage")
       stop("[Transform] Critical Error: Values > 100 detected in percentage mode.")
     }
     p <- mat / 100
-    epsilon <- epsilon / 100 # Align epsilon scale to proportions
+    epsilon <- epsilon / 100 
   } else {
     if (any(mat > 1.0 + epsilon, na.rm = TRUE)) {
       stop("[Transform] Critical Error: Values > 1.0 detected in proportion mode.")
@@ -80,7 +198,6 @@ perform_data_transformation <- function(mat_raw, config, mode = "complete") {
     mat_facs <- mat_raw[, facs_cols_present, drop = FALSE]
     
     if (facs_method == "logit") {
-      # Handle Zeros / LOD specifically for logit
       if (mode == "complete") {
         mins <- apply(mat_facs, 2, function(x) {
           pos <- x[x > 0 & !is.na(x)]
@@ -107,7 +224,6 @@ perform_data_transformation <- function(mat_raw, config, mode = "complete") {
     mat_sol <- mat_raw[, sol_cols_present, drop = FALSE]
     
     if (sol_method == "log2") {
-      # pseudo-count x+1 prevents -Inf for zero values
       mat_sol_trans <- log2(mat_sol + 1)
       message(sprintf("   [Transform] Processed %d Soluble markers (Method: log2(x+1)).", ncol(mat_sol)))
     } else if (sol_method == "none") {
@@ -123,7 +239,6 @@ perform_data_transformation <- function(mat_raw, config, mode = "complete") {
   if (length(mat_transformed_parts) == 0) stop("[FATAL] No valid features processed in transformation step.")
   mat_merged <- do.call(cbind, mat_transformed_parts)
   
-  # Restore original column ordering to prevent shifts
   expected_cols <- intersect(colnames(mat_raw), colnames(mat_merged))
   mat_merged <- mat_merged[, expected_cols, drop = FALSE]
   
@@ -154,7 +269,6 @@ perform_data_transformation <- function(mat_raw, config, mode = "complete") {
     
     if (ncol(mat_final_raw) == 0) stop("[FATAL] All columns dropped due to zero variance.")
     
-    # Scale across entirely transformed and imputed matrix
     mat_final_z <- scale(mat_final_raw)
     attr(mat_final_z, "scaled:center") <- NULL
     attr(mat_final_z, "scaled:scale") <- NULL
@@ -165,8 +279,8 @@ perform_data_transformation <- function(mat_raw, config, mode = "complete") {
   }
   
   return(list(
-    hybrid_data_raw = mat_final_raw, # Transformed & Imputed, but NOT scaled (useful for debug)
-    hybrid_data_z = mat_final_z,     # Final Z-scored data for sPLS-DA
+    hybrid_data_raw = mat_final_raw,
+    hybrid_data_z = mat_final_z,
     hybrid_markers = colnames(mat_final_z)
   ))
 }

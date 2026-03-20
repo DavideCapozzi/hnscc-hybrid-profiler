@@ -1,12 +1,10 @@
 # src/03_statistical_analysis.R
 # ==============================================================================
 # STEP 03: STATISTICAL ANALYSIS & REPORTING
-# Description: Evaluates structural differences (PERMANOVA) and extracts 
-#              hybrid drivers of clinical response via sPLS-DA.
+# Description: Extracts hybrid drivers of clinical response via sPLS-DA.
 # ==============================================================================
 
 source("R/utils_io.R")          
-source("R/modules_hypothesis.R") 
 source("R/modules_multivariate.R")
 source("R/modules_viz.R") 
 
@@ -30,13 +28,6 @@ meta_stats <- DATA$metadata
 mat_z_global <- as.matrix(df_global[, safe_markers])
 rownames(mat_z_global) <- meta_stats$Patient_ID
 
-# Prepare clean dataframe for Hypothesis testing
-df_hypo <- cbind(
-  Patient_ID = meta_stats$Patient_ID, 
-  Group = meta_stats$Group, 
-  as.data.frame(mat_z_global)
-)
-
 # Align colors safely (protecting against missing config keys)
 colors_viz <- c()
 if (!is.null(config$colors$groups[[config$clinical$responder_label]])) {
@@ -49,40 +40,13 @@ if (!is.null(config$colors$groups[[config$clinical$non_responder_label]])) {
 
 wb_master <- openxlsx::createWorkbook()
 
-# 2. GLOBAL DISPERSION & PERMANOVA
-message("--- RUNNING ASSUMPTION CHECKS & MANOVA ---")
-
-message("   [Stats] Running Beta-Dispersion Check...")
-tryCatch({
-  disp_obj <- test_coda_dispersion(
-    data_input = df_hypo, 
-    group_col = "Group", 
-    metadata_cols = c("Patient_ID"),
-    n_perm = 999
-  )
-  openxlsx::addWorksheet(wb_master, "Beta_Dispersion")
-  openxlsx::writeData(wb_master, "Beta_Dispersion", as.data.frame(disp_obj$anova_table), rowNames = TRUE)
-}, error = function(e) message(paste("   [ERROR] Beta-Dispersion failed:", e$message)))
-
-message("   [Stats] Running PERMANOVA...")
-tryCatch({
-  perm_obj <- test_coda_permanova(
-    data_input = df_hypo, 
-    group_col = "Group", 
-    metadata_cols = c("Patient_ID"),
-    n_perm = 999
-  )
-  openxlsx::addWorksheet(wb_master, "PERMANOVA")
-  openxlsx::writeData(wb_master, "PERMANOVA", as.data.frame(perm_obj), rowNames = TRUE)
-}, error = function(e) message(paste("   [ERROR] PERMANOVA failed:", e$message)))
-
-# 3. MULTIVARIATE HYBRID sPLS-DA
+# 2. MULTIVARIATE HYBRID sPLS-DA
 message("\n--- RUNNING HYBRID sPLS-DA (Responder vs Non-Responder) ---")
 
 set.seed(config$stats$seed) 
 tryCatch({
   pls_res <- run_splsda_model(
-    data_z = mat_z_global, # Using the explicitly row-named matrix
+    data_z = mat_z_global, 
     metadata = meta_stats, 
     group_col = "Group", 
     n_comp = config$multivariate$n_comp,
@@ -118,7 +82,7 @@ tryCatch({
   }
 }, error = function(e) message(paste("   [ERROR] sPLS-DA Failed:", e$message)))
 
-# 4. EXPORT FINAL REPORT
+# 3. EXPORT FINAL REPORT
 report_path <- file.path(results_dir, "Hybrid_Statistical_Report.xlsx")
 openxlsx::saveWorkbook(wb_master, report_path, overwrite = TRUE)
 message(sprintf("\n   [Output] Final Statistical Report saved: %s", report_path))
