@@ -1,0 +1,10 @@
+output_root: "results"
+project_name: "BestResponse_2v3_4"
+input_file: "data/Dati_NSCLC_standardizzati.xlsx"
+clinical:
+  target_column: "Best_response_rate_(RC=1,_RP=2,_SD=3,_PD=4)"
+  responder_label: "RP"     # Partial Response
+  non_responder_label: "SD_PD" # Stable/Progressive Disease
+  mapping:
+    RP:    [2]
+    SD_PD: [3, 4]

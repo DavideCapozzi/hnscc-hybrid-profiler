@@ -18,64 +18,92 @@ suppressPackageStartupMessages({
 
 options(crayon.enabled = FALSE)
 
-# Load Configuration
-config_path <- here("config/global_params.yml")
-if (!file.exists(config_path)) stop("[FATAL] Config file not found!")
-config <- yaml::read_yaml(config_path)
+# Define the list of experiment configs to run
+experiments <- c(
+  "config/config_toxicity.yml",
+  "config/config_best_response.yml",
+  "config/config_comorbidity.yml"
+)
 
-# 2. Logging Setup
+# Load BASE Configuration (contains features, qc thresholds, colors, etc.)
+base_config_path <- here("config/global_params.yml")
+if (!file.exists(base_config_path)) stop("[FATAL] Base Config file not found!")
+base_config <- yaml::read_yaml(base_config_path)
+
+# --- Module Loading ---
+message("\n>>> LOADING MODULES <<<")
+list.files(here("R"), pattern = "\\.R$", full.names = TRUE) %>% purrr::walk(source)
+message("[System] Modules loaded successfully.")
+
+# 2. Pipeline Execution Loop
 # ------------------------------------------------------------------------------
-out_root <- here(config$output_root)
-if (!is.null(config$project_name) && config$project_name != "") {
-  out_root <- paste0(out_root, "_", config$project_name)
-}
-if (!dir.exists(out_root)) dir.create(out_root, recursive = TRUE)
-
-timestamp <- format(Sys.time(), "%Y%m%d_%H%M%S")
-log_file <- file.path(out_root, paste0("pipeline_log_", timestamp, ".txt"))
-
-cat(sprintf("=== ONCO-HYBRID-PROFILER STARTED: %s ===\n", Sys.time()), file = log_file)
-message(sprintf("[System] Saving full log to: %s", log_file))
-
-log_handler <- function(m) {
-  cat(conditionMessage(m), file = log_file, append = TRUE, sep = "\n")
-}
-
-warn_handler <- function(w) {
-  cat(paste0("WARNING: ", conditionMessage(w)), file = log_file, append = TRUE, sep = "\n")
-}
-
-# 3. Pipeline Execution
-# ------------------------------------------------------------------------------
-tryCatch({
-  withCallingHandlers({
-    
-    # --- Module Loading ---
-    message("\n>>> LOADING MODULES <<<")
-    list.files(here("R"), pattern = "\\.R$", full.names = TRUE) %>% purrr::walk(source)
-    message("[System] Modules loaded successfully.")
-    
-    # --- PHASE 1: DATA INGESTION, QC & HYBRID TRANSFORM ---
-    message("\n>>> RUNNING PHASE 1: DATA PROCESSING <<<")
-    source(here("src/01_data_processing.R"), echo = FALSE)
-    
-    # --- PHASE 2: OVERVIEW VISUALIZATION ---
-    message("\n>>> RUNNING PHASE 2: VISUALIZATION <<<")
-    source(here("src/02_visualization.R"), echo = FALSE)
-    
-    # --- PHASE 3: MULTIVARIATE ANALYSIS (sPLS-DA) & REPORTING ---
-    message("\n>>> RUNNING PHASE 3: STATISTICAL ANALYSIS & REPORTING <<<")
-    source(here("src/03_statistical_analysis.R"), echo = FALSE)
-    
-    final_msg <- sprintf("\n=== PIPELINE FINISHED SUCCESSFULLY: %s ===", Sys.time())
-    message(final_msg)
-    
-  }, message = log_handler, warning = warn_handler)
+for (exp_file in experiments) {
   
-}, error = function(e) {
-  err_msg <- paste0("\n[FATAL ERROR] Pipeline stopped: ", e$message)
-  cat(err_msg, file = log_file, append = TRUE, sep = "\n")
-  stop(e$message)
-}, finally = {
-  options(crayon.enabled = TRUE)
-})
+  if (!file.exists(here(exp_file))) {
+    message(sprintf("\n[WARNING] Skipping %s: file not found.", exp_file))
+    next
+  }
+  
+  # A. Merge Configs (Base + Experiment specific)
+  exp_cfg <- yaml::read_yaml(here(exp_file))
+  config <- base_config # This creates the global config variable used by 01, 02, 03
+  
+  config$project_name <- exp_cfg$project_name
+  config$clinical <- exp_cfg$clinical
+  if (!is.null(exp_cfg$input_file)) config$input_file <- exp_cfg$input_file
+  
+  # Construct nested output directory (e.g., results/Toxicity_1v0)
+  if (!is.null(config$project_name) && config$project_name != "") {
+    config$output_root <- file.path(base_config$output_root, config$project_name)
+  }
+  
+  # B. Logging Setup for this specific experiment
+  out_root <- here(config$output_root)
+  if (!dir.exists(out_root)) dir.create(out_root, recursive = TRUE)
+  
+  timestamp <- format(Sys.time(), "%Y%m%d_%H%M%S")
+  log_file <- file.path(out_root, paste0("pipeline_log_", timestamp, ".txt"))
+  
+  message(sprintf("\n========================================================"))
+  message(sprintf("STARTING EXPERIMENT: %s", config$project_name))
+  message(sprintf("Log file: %s", log_file))
+  message(sprintf("========================================================\n"))
+  
+  cat(sprintf("=== ONCO-HYBRID-PROFILER STARTED: %s ===\n", Sys.time()), file = log_file)
+  cat(sprintf("Experiment: %s\n", config$project_name), file = log_file, append = TRUE)
+  
+  log_handler <- function(m) {
+    cat(conditionMessage(m), file = log_file, append = TRUE, sep = "\n")
+  }
+  
+  warn_handler <- function(w) {
+    cat(paste0("WARNING: ", conditionMessage(w)), file = log_file, append = TRUE, sep = "\n")
+  }
+  
+  # C. Run Scripts
+  tryCatch({
+    withCallingHandlers({
+      
+      message("\n>>> RUNNING PHASE 1: DATA PROCESSING <<<")
+      source(here("src/01_data_processing.R"), echo = FALSE, local = FALSE)
+      
+      message("\n>>> RUNNING PHASE 2: VISUALIZATION <<<")
+      source(here("src/02_visualization.R"), echo = FALSE, local = FALSE)
+      
+      message("\n>>> RUNNING PHASE 3: STATISTICAL ANALYSIS & REPORTING <<<")
+      source(here("src/03_statistical_analysis.R"), echo = FALSE, local = FALSE)
+      
+      final_msg <- sprintf("\n=== EXPERIMENT FINISHED SUCCESSFULLY: %s ===", Sys.time())
+      message(final_msg)
+      
+    }, message = log_handler, warning = warn_handler)
+    
+  }, error = function(e) {
+    err_msg <- paste0("\n[FATAL ERROR] Experiment stopped: ", e$message)
+    cat(err_msg, file = log_file, append = TRUE, sep = "\n")
+    message(err_msg)
+  })
+}
+
+options(crayon.enabled = TRUE)
+message("\n=== ALL EXPERIMENTS COMPLETED ===")

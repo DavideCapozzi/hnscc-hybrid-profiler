@@ -12,7 +12,11 @@ message("\n=== PIPELINE STEP 1: INGESTION + HYBRID QC + TRANSFORM ===")
 
 # 1. Load Configuration & Data
 # ------------------------------------------------------------------------------
-config <- load_config("config/global_params.yml")
+if (!exists("config")) {
+  args <- commandArgs(trailingOnly = TRUE)
+  config_path <- if (length(args) > 0) args[1] else "config/global_params.yml"
+  config <- load_config(config_path)
+}
 
 # Use basic readxl for single file (ignoring old multi-sheet logic)
 input_file <- config$input_file
@@ -30,6 +34,19 @@ nresp_lbl <- config$clinical$non_responder_label
 
 if (!clin_col %in% colnames(raw_data)) {
   stop(sprintf("[FATAL] Clinical target column '%s' not found in dataset.", clin_col))
+}
+
+# Dynamic mapping of clinical labels from configuration (if provided)
+if (!is.null(config$clinical$mapping)) {
+  mapped_resp <- as.character(unlist(config$clinical$mapping[[resp_lbl]]))
+  mapped_nresp <- as.character(unlist(config$clinical$mapping[[nresp_lbl]]))
+  
+  raw_data <- raw_data %>%
+    dplyr::mutate(!!clin_col := dplyr::case_when(
+      as.character(.data[[clin_col]]) %in% mapped_resp ~ resp_lbl,
+      as.character(.data[[clin_col]]) %in% mapped_nresp ~ nresp_lbl,
+      TRUE ~ as.character(.data[[clin_col]])
+    ))
 }
 
 # Filter to keep only target clinical labels and rename to 'Group'

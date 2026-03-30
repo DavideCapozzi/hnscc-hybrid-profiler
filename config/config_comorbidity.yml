@@ -1,0 +1,10 @@
+output_root: "results"
+project_name: "Comorbidity_1v0"
+input_file: "data/Dati_NSCLC_standardizzati.xlsx"
+clinical:
+  target_column: "comorbidità_No=0,_Si=1"
+  responder_label: "Comorb_Yes"
+  non_responder_label: "Comorb_No"
+  mapping:
+    Comorb_Yes: [1]
+    Comorb_No:  [0]

@@ -1,0 +1,10 @@
+output_root: "results"
+project_name: "Toxicity_1v0"
+input_file: "data/Dati_NSCLC_standardizzati.xlsx"
+clinical:
+  target_column: "tossicità da immuno No=0, Si=1"
+  responder_label: "Tox_Yes"
+  non_responder_label: "Tox_No"
+  mapping:
+    Tox_Yes: [1]
+    Tox_No:  [0]

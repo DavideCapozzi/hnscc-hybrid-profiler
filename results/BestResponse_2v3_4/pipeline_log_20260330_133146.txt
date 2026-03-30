@@ -1,0 +1,95 @@
+=== ONCO-HYBRID-PROFILER STARTED: 2026-03-30 13:31:46.283229 ===
+Experiment: BestResponse_2v3_4
+
+>>> RUNNING PHASE 1: DATA PROCESSING <<<
+
+
+=== PIPELINE STEP 1: INGESTION + HYBRID QC + TRANSFORM ===
+
+[Data] Initial Matrix: 79 Samples x 45 Hybrid Markers
+
+[QC] Running Split QC Strategy...
+
+   [QC-A] Filtering Missingness with Dual Thresholds...
+
+[QC] Running Hybrid Quality Control...
+
+   [QC] Dropping 2 patients with >40% total missingness.
+
+   [QC] Final Dimensions: 77 Samples x 45 Markers
+
+   [QC-B] Generating hybrid proxy for Outlier Detection...
+
+
+[Transform] Starting Hybrid Strategy (fast mode)...
+
+   [Transform] Processed 39 FACS markers (Method: logit).
+
+   [Transform] Processed 6 Soluble markers (Method: log2(x+1)).
+
+   [QC-B] Dropping 3 multivariate outliers.
+
+[QC] Final Clean Dimensions: 74 Samples x 45 Markers
+
+[Transform] Running Final Hybrid Data Transformation...
+
+
+[Transform] Starting Hybrid Strategy (complete mode)...
+
+   [Transform] Processed 39 FACS markers (Method: logit).
+
+   [Transform] Processed 6 Soluble markers (Method: log2(x+1)).
+
+   [Transform] Running Joint BPCA Imputation on combined data...
+
+WARNING:    [Impute] kEstimate ambiguous. Using conservative K=4.
+[IO] QC Report saved to: results/BestResponse_2v3_4/01_data_processing/QC_Filtering_Report.xlsx
+
+=== STEP 1 COMPLETE ===
+
+
+
+>>> RUNNING PHASE 2: VISUALIZATION <<<
+
+
+=== PIPELINE STEP 2: VISUALIZATION ===
+
+[Viz] Generating distribution plots...
+
+   [Viz] Saving distribution plots to: Distributions_Raw_Hybrid.pdf
+
+[PCA] Running Global PCA...
+
+   [PCA] Plotting Variance Scree Plot
+
+[Viz] Generating Heatmap...
+
+=== STEP 2 COMPLETE ===
+
+
+
+>>> RUNNING PHASE 3: STATISTICAL ANALYSIS & REPORTING <<<
+
+
+=== PIPELINE STEP 3: STATISTICAL ANALYSIS & REPORTING ===
+
+
+--- RUNNING HYBRID sPLS-DA (Responder vs Non-Responder) ---
+
+   [sPLS-DA] Tuning optimal features (keepX) for 2 components...
+
+      -> Optimal keepX selected: Comp1=5, Comp2=30
+
+   [sPLS-DA] Fitting final sparse model with selected parameters...
+
+   [Viz] Generating sPLS-DA graphical report: Hybrid_sPLSDA_Results.pdf
+
+
+   [Output] Final Statistical Report saved: results/BestResponse_2v3_4/03_statistical_analysis/Hybrid_Statistical_Report.xlsx
+
+=== STEP 3 COMPLETE ===
+
+
+
+=== EXPERIMENT FINISHED SUCCESSFULLY: 2026-03-30 13:34:02.547435 ===
+

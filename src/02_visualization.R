@@ -10,9 +10,14 @@ source("R/modules_viz.R")
 message("\n=== PIPELINE STEP 2: VISUALIZATION ===")
 
 # 1. Load Config & Data
-config <- load_config("config/global_params.yml")
+args <- commandArgs(trailingOnly = TRUE)
+# 1. Load Config & Data
+if (!exists("config")) {
+  args <- commandArgs(trailingOnly = TRUE)
+  config_path <- if (length(args) > 0) args[1] else "config/global_params.yml"
+  config <- load_config(config_path)
+}
 input_file <- file.path(config$output_root, "01_data_processing", "data_processed.rds")
-if (!file.exists(input_file)) stop("[FATAL] Step 01 output not found.")
 
 DATA <- readRDS(input_file)
 meta_viz <- DATA$metadata

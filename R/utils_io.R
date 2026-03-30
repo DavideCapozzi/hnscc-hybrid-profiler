@@ -20,9 +20,9 @@ load_config <- function(config_path = "config/global_params.yml") {
   
   config <- yaml::read_yaml(config_path)
   
-  # If project_name is defined, append it to output_root
+  # If project_name is defined, nest it inside output_root
   if (!is.null(config$project_name) && config$project_name != "") {
-    config$output_root <- paste0(config$output_root, "_", config$project_name)
+    config$output_root <- file.path(config$output_root, config$project_name)
   }
   
   message(sprintf("[System] Configuration loaded from %s", config_path))
