@@ -18,17 +18,14 @@ suppressPackageStartupMessages({
 
 options(crayon.enabled = FALSE)
 
-# Define the list of experiment configs to run
-experiments <- c(
-  "config/config_toxicity.yml",
-  "config/config_best_response.yml",
-  "config/config_comorbidity.yml"
-)
-
-# Load BASE Configuration (contains features, qc thresholds, colors, etc.)
+# Load BASE Configuration (contains features, qc thresholds, colors, experiments, etc.)
 base_config_path <- here("config/global_params.yml")
 if (!file.exists(base_config_path)) stop("[FATAL] Base Config file not found!")
 base_config <- yaml::read_yaml(base_config_path)
+
+if (is.null(base_config$experiments) || length(base_config$experiments) == 0) {
+  stop("[FATAL] No experiments defined in the base config file!")
+}
 
 # --- Module Loading ---
 message("\n>>> LOADING MODULES <<<")
@@ -37,18 +34,13 @@ message("[System] Modules loaded successfully.")
 
 # 2. Pipeline Execution Loop
 # ------------------------------------------------------------------------------
-for (exp_file in experiments) {
-  
-  if (!file.exists(here(exp_file))) {
-    message(sprintf("\n[WARNING] Skipping %s: file not found.", exp_file))
-    next
-  }
+for (exp_name in names(base_config$experiments)) {
   
   # A. Merge Configs (Base + Experiment specific)
-  exp_cfg <- yaml::read_yaml(here(exp_file))
+  exp_cfg <- base_config$experiments[[exp_name]]
   config <- base_config # This creates the global config variable used by 01, 02, 03
   
-  config$project_name <- exp_cfg$project_name
+  config$project_name <- exp_name
   config$clinical <- exp_cfg$clinical
   if (!is.null(exp_cfg$input_file)) config$input_file <- exp_cfg$input_file
   

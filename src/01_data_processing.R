@@ -26,6 +26,12 @@ raw_data <- readxl::read_excel(input_file)
 # Standardize Patient ID column (assume it's the first column)
 colnames(raw_data)[1] <- "Patient_ID"
 
+# [BUGFIX] Ensure Patient_ID is strictly unique to prevent downstream mixOmics crashes
+if (any(duplicated(raw_data$Patient_ID))) {
+  warning("[Data] Found duplicated Patient_IDs in the raw data. Applying make.unique().")
+  raw_data$Patient_ID <- make.unique(as.character(raw_data$Patient_ID))
+}
+
 # 2. Setup Initial Matrices & Clinical Filtering
 # ------------------------------------------------------------------------------
 clin_col <- config$clinical$target_column

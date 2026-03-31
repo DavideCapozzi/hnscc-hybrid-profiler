@@ -5,14 +5,38 @@
 # --- System Setup ---
 output_root: "results"
 project_name: "base_run"
-input_file: "data/Dati_NSCLC_standardizzati.xlsx"
+input_file: "data/Dati_NSCLC_standardizzati_T0.xlsx"
 
-# --- Clinical Grouping (Fallback/Base) ---
-# NOTE: These will be dynamically overwritten by main.R for each experiment
-clinical:
-  target_column: "tossicità da immuno No=0, Si=1" 
-  responder_label: "Tox_Yes"
-  non_responder_label: "Tox_No"
+# [Aggiungi alla fine del file global_params.yml esistente]
+
+# --- Experiment Iterations ---
+experiments:
+  BestResponse_2v3_4:
+    clinical:
+      target_column: "Best_response_rate_(RC=1,_RP=2,_SD=3,_PD=4)"
+      responder_label: "RP"
+      non_responder_label: "SD_PD"
+      mapping:
+        RP: [2]
+        SD_PD: [3, 4]
+        
+  Comorbidity_1v0:
+    clinical:
+      target_column: "Comorbidity_(N=0;_Y=1;_if_Y_specify)"
+      responder_label: "Comorb_Yes"
+      non_responder_label: "Comorb_No"
+      mapping:
+        Comorb_Yes: [1]
+        Comorb_No:  [0]
+        
+  Toxicity_1v0:
+    clinical:
+      target_column: "tossicità_da_immuno_(_HB=1;Neutrophils=2;_Platelets=3;Amilase/lipase=4;Fatigue=5;_oral_mucositis=6;Diarrea=7;_Nausea=8;_vomiting=9;_skin=10,_thyroid=11;_polmonite=12)"
+      responder_label: "Tox_Yes"
+      non_responder_label: "Tox_No"
+      mapping:
+        Tox_Yes: [1]
+        Tox_No:  [0]
 
 # --- Data Dictionaries (Hybrid Logic) ---
 # DYNAMIC UPDATE: New markers mapped by data type for correct transformation

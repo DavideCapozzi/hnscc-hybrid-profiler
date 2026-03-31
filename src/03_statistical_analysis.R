@@ -32,7 +32,9 @@ meta_stats <- DATA$metadata
 
 # Extract strict matrix with exact rownames to prevent downstream heatmap crashes
 mat_z_global <- as.matrix(df_global[, safe_markers])
-rownames(mat_z_global) <- meta_stats$Patient_ID
+
+# [BUGFIX] Enforce unique rownames for mixOmics compatibility
+rownames(mat_z_global) <- make.unique(as.character(meta_stats$Patient_ID))
 
 # Align colors safely (protecting against missing config keys)
 colors_viz <- c()
