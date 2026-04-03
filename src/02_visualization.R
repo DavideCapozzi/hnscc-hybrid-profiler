@@ -17,7 +17,9 @@ if (!exists("config")) {
   config_path <- if (length(args) > 0) args[1] else "config/global_params.yml"
   config <- load_config(config_path)
 }
-input_file <- file.path(config$output_root, "01_data_processing", "data_processed.rds")
+input_file <- file.path(config$output_root, "01_data_processing", sprintf("data_processed_%s.rds", config$project_name))
+
+DATA <- readRDS(input_file)
 
 DATA <- readRDS(input_file)
 meta_viz <- DATA$metadata
@@ -48,7 +50,7 @@ df_raw_viz <- cbind(meta_viz, as.data.frame(raw_matrix))
 viz_save_distribution_report(
   data_df = df_raw_viz, 
   markers = DATA$markers, 
-  file_path = file.path(out_dir, "Distributions_Raw_Hybrid.pdf"), 
+  file_path = file.path(out_dir, sprintf("Distributions_Raw_Hybrid_%s.pdf", config$project_name)), 
   colors = colors_viz 
 )
 
@@ -57,7 +59,17 @@ viz_save_distribution_report(
 message("[PCA] Running Global PCA...")
 res_pca <- FactoMineR::PCA(mat_z_global, scale.unit = FALSE, graph = FALSE)
 
-pdf(file.path(out_dir, "PCA_Global_Individuals.pdf"), width = 11, height = 7) 
+pdf(file.path(out_dir, sprintf("PCA_Global_Individuals_%s.pdf", config$project_name)), width = 11, height = 7) 
+
+# ... (codice invariato all'interno) ...
+dev.off()
+
+# 5. Heatmap Analysis
+# ------------------------------------------------------------------------------
+message("[Viz] Generating Heatmap...")
+annotation_colors <- list(Group = colors_viz)
+
+pdf(file.path(out_dir, sprintf("Heatmap_Stratification_%s.pdf", config$project_name)), width = 10, height = 8)
 
 target_dims_list <- list(c(1,2), c(1,3), c(2,3))
 

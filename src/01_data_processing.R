@@ -165,7 +165,7 @@ processed_data <- list(
   config          = config
 )
 
-saveRDS(processed_data, file.path(out_dir, "data_processed.rds"))
-save_qc_report(qc_result$report, file.path(out_dir, "QC_Filtering_Report.xlsx"))
+saveRDS(processed_data, file.path(out_dir, sprintf("data_processed_%s.rds", config$project_name)))
+save_qc_report(qc_result$report, file.path(out_dir, sprintf("QC_Filtering_Report_%s.xlsx", config$project_name)))
 
 message("=== STEP 1 COMPLETE ===\n")

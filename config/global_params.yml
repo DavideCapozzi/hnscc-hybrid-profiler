@@ -7,8 +7,6 @@ output_root: "results"
 project_name: "base_run"
 input_file: "data/Dati_NSCLC_standardizzati_T1.xlsx"
 
-# [Aggiungi alla fine del file global_params.yml esistente]
-
 # --- Experiment Iterations ---
 experiments:
   BestResponse_2v3_4:
@@ -70,7 +68,7 @@ features:
     - "KI67CD8"
     - "KI67CM"
     - "KI67EFF"
-    - "KI657EMRA"   # Kept verbatim as requested
+    - "KI657EMRA"   
     - "KI67NAIVE"
     - "PD1"
     - "PD1CD4"
