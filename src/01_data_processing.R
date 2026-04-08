@@ -16,6 +16,7 @@ if (!exists("config")) {
   args <- commandArgs(trailingOnly = TRUE)
   config_path <- if (length(args) > 0) args[1] else "config/global_params.yml"
   config <- load_config(config_path)
+  if (is.null(config$run_mode)) config$run_mode <- "standard"
 }
 
 # Handle Longitudinal vs Cross-Sectional Data Ingestion
@@ -29,12 +30,10 @@ if (isTRUE(config$is_longitudinal)) {
   raw_t0 <- readxl::read_excel(config$input_file_t0) %>% dplyr::mutate(Timepoint = "T0")
   raw_t1 <- readxl::read_excel(config$input_file_t1) %>% dplyr::mutate(Timepoint = "T1")
   
-  # Standardize IDs before binding
   colnames(raw_t0)[1] <- "Patient_ID"
   colnames(raw_t1)[1] <- "Patient_ID"
   raw_data <- dplyr::bind_rows(raw_t0, raw_t1)
   
-  # Create a unique composite ID for matrices, preserving original Patient_ID for pairing
   raw_data$Sample_ID <- paste(as.character(raw_data$Patient_ID), raw_data$Timepoint, sep = "_")
   
 } else {
@@ -62,7 +61,6 @@ if (!clin_col %in% colnames(raw_data)) {
   stop(sprintf("[FATAL] Clinical target column '%s' not found in dataset.", clin_col))
 }
 
-# Dynamic mapping of clinical labels from configuration (if provided)
 if (!is.null(config$clinical$mapping)) {
   mapped_resp <- as.character(unlist(config$clinical$mapping[[resp_lbl]]))
   mapped_nresp <- as.character(unlist(config$clinical$mapping[[nresp_lbl]]))
@@ -75,19 +73,29 @@ if (!is.null(config$clinical$mapping)) {
     ))
 }
 
-# Filter to keep only target clinical labels and rename to 'Group'
 raw_filtered <- raw_data %>%
   dplyr::filter(.data[[clin_col]] %in% c(resp_lbl, nresp_lbl)) %>%
   dplyr::mutate(Group = factor(.data[[clin_col]], levels = c(nresp_lbl, resp_lbl)))
 
 if (nrow(raw_filtered) < 5) stop("[FATAL] Insufficient valid patients found for specified clinical labels.")
 
-# Extract Features
+# Dynamic Covariate Extraction
+meta_cols <- c("Patient_ID", "Sample_ID", "Timepoint", "Group")
+if (!is.null(config$clinical$covariates)) {
+  cov_cols <- unlist(config$clinical$covariates)
+  valid_covs <- intersect(cov_cols, colnames(raw_filtered))
+  if (length(valid_covs) < length(cov_cols)) {
+    warning("[Data] Some specified covariates were not found in the dataset.")
+  }
+  meta_cols <- unique(c(meta_cols, valid_covs))
+}
+
+metadata_raw <- raw_filtered %>% dplyr::select(dplyr::all_of(meta_cols))
+
 facs_feats <- unlist(config$features$facs)
 sol_feats <- unlist(config$features$soluble)
 target_markers <- unique(c(facs_feats, sol_feats))
 
-# Ensure markers exist in data
 missing_markers <- setdiff(target_markers, colnames(raw_filtered))
 if (length(missing_markers) > 0) {
   warning(sprintf("[Data] %d configured markers not found in Excel. They will be ignored.", length(missing_markers)))
@@ -96,19 +104,17 @@ if (length(missing_markers) > 0) {
   sol_feats <- intersect(sol_feats, colnames(raw_filtered))
 }
 
-# Build strictly numeric matrix
 mat_raw <- as.matrix(raw_filtered[, target_markers])
 rownames(mat_raw) <- raw_filtered$Sample_ID
-metadata_raw <- raw_filtered %>% dplyr::select(Patient_ID, Sample_ID, Timepoint, Group)
 
 message(sprintf("[Data] Initial Matrix: %d Samples x %d Hybrid Markers", nrow(mat_raw), ncol(mat_raw)))
 
-# 3. Hybrid Quality Control (Dual Thresholds)
+# 3. Hybrid Quality Control
 # ------------------------------------------------------------------------------
 message("[QC] Running Split QC Strategy...")
 
 qc_config_basic <- config$qc
-qc_config_basic$remove_outliers <- FALSE # Disable outlier detection for first pass
+qc_config_basic$remove_outliers <- FALSE
 
 message("   [QC-A] Filtering Missingness with Dual Thresholds...")
 qc_result <- run_qc_pipeline(
@@ -123,8 +129,7 @@ qc_result <- run_qc_pipeline(
 mat_clean_basic  <- qc_result$data
 meta_clean_basic <- qc_result$metadata
 
-# --- STEP B: Multivariate Outlier Detection ---
-if (config$qc$remove_outliers) {
+if (isTRUE(config$qc$remove_outliers)) {
   message("   [QC-B] Generating hybrid proxy for Outlier Detection...")
   
   proxy_results <- perform_data_transformation(mat_clean_basic, config, mode = "fast")
@@ -158,16 +163,18 @@ mat_raw <- mat_clean_basic
 metadata_raw <- meta_clean_basic
 message(sprintf("[QC] Final Clean Dimensions: %d Samples x %d Markers", nrow(mat_raw), ncol(mat_raw)))
 
-# 4. Final Hybrid Transformation (Complete Mode with BPCA)
+# 4. Final Hybrid Transformation (Prevent BPCA Leakage in Longitudinal)
 # ------------------------------------------------------------------------------
-message("[Transform] Running Final Hybrid Data Transformation...")
-transform_results <- perform_data_transformation(mat_raw, config, mode = "complete")
+transform_mode <- if (isTRUE(config$is_longitudinal)) "fast" else "complete"
+message(sprintf("[Transform] Running Final Hybrid Transformation (Mode: %s)...", transform_mode))
+
+transform_results <- perform_data_transformation(mat_raw, config, mode = transform_mode)
 
 mat_hybrid_raw <- transform_results$hybrid_data_raw
 mat_hybrid_z   <- transform_results$hybrid_data_z
 final_markers  <- transform_results$hybrid_markers
 
-# 5. Save Final Output
+# 5. Save Final Output (Mode-Aware)
 # ------------------------------------------------------------------------------
 out_dir <- file.path(config$output_root, "01_data_processing")
 if (!dir.exists(out_dir)) dir.create(out_dir, recursive = TRUE)
@@ -185,7 +192,11 @@ processed_data <- list(
   config          = config
 )
 
-saveRDS(processed_data, file.path(out_dir, sprintf("data_processed_%s.rds", config$project_name)))
-save_qc_report(qc_result$report, file.path(out_dir, sprintf("QC_Filtering_Report_%s.xlsx", config$project_name)))
+out_file_data <- file.path(out_dir, sprintf("data_processed_%s_%s.rds", config$project_name, config$run_mode))
+out_file_qc   <- file.path(out_dir, sprintf("QC_Filtering_Report_%s_%s.xlsx", config$project_name, config$run_mode))
 
+saveRDS(processed_data, out_file_data)
+save_qc_report(qc_result$report, out_file_qc)
+
+message(sprintf("   [Output] Saved %s", basename(out_file_data)))
 message("=== STEP 1 COMPLETE ===\n")

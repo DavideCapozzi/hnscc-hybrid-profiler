@@ -18,11 +18,9 @@ if (!exists("config")) {
   config_path <- if (length(args) > 0) args[1] else "config/global_params.yml"
   config <- load_config(config_path)
 }
-input_file <- file.path(config$output_root, "01_data_processing", sprintf("data_processed_%s.rds", config$project_name))
+input_file <- file.path(config$output_root, "01_data_processing", sprintf("data_processed_%s_standard.rds", config$project_name))
 
-if (!file.exists(input_file)) stop("[FATAL] Step 01 output not found.")
-
-if (!file.exists(input_file)) stop("[FATAL] Step 01 output not found.")
+if (!file.exists(input_file)) stop("[FATAL] Step 01 standard output not found.")
 DATA <- readRDS(input_file)
 
 results_dir <- file.path(config$output_root, "03_statistical_analysis")

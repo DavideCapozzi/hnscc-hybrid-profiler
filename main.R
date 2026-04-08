@@ -38,7 +38,6 @@ for (exp_name in names(base_config$experiments)) {
   
   exp_cfg <- base_config$experiments[[exp_name]]
   
-  # Determine Triggers
   run_standard <- if (!is.null(exp_cfg$run_standard)) as.logical(exp_cfg$run_standard) else TRUE
   run_longitudinal <- if (!is.null(exp_cfg$is_longitudinal)) as.logical(exp_cfg$is_longitudinal) else FALSE
   
@@ -51,7 +50,8 @@ for (exp_name in names(base_config$experiments)) {
   # ============================================================================
   if (run_standard) {
     config <- base_config
-    config$project_name <- exp_name
+    config$project_name <- exp_name # Shared root directory
+    config$run_mode <- "standard"   # Filename isolation
     config$clinical <- exp_cfg$clinical
     config$is_longitudinal <- FALSE
     
@@ -90,12 +90,14 @@ for (exp_name in names(base_config$experiments)) {
   # PASS 2: LONGITUDINAL PIPELINE (01 Joint, 04 LMM)
   # ============================================================================
   if (run_longitudinal) {
-    # Re-initialize a clean configuration object
     config <- base_config
-    # Automatically suffix the project name to isolate outputs
-    config$project_name <- paste0(exp_name, "_Longitudinal") 
+    config$project_name <- exp_name     # Shared root directory
+    config$run_mode <- "longitudinal"   # Filename isolation
     config$clinical <- exp_cfg$clinical
     config$is_longitudinal <- TRUE
+    
+    # Critical: Disable Multivariate Outliers to prevent temporal censoring
+    config$qc$remove_outliers <- FALSE
     
     if (!is.null(exp_cfg$input_file_t0)) config$input_file_t0 <- exp_cfg$input_file_t0
     if (!is.null(exp_cfg$input_file_t1)) config$input_file_t1 <- exp_cfg$input_file_t1
