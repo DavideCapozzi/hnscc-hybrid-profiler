@@ -2,7 +2,7 @@
 # ==============================================================================
 # MAIN PIPELINE ORCHESTRATOR: onco-hybrid-profiler
 # Description: End-to-end execution for Hybrid Data (FACS + Solubles)
-#              Goal: Identify drivers of clinical response via sPLS-DA.
+#              Goal: Identify drivers of clinical response via sPLS-DA & LMM.
 # ==============================================================================
 
 # 1. Environment Setup
@@ -18,7 +18,7 @@ suppressPackageStartupMessages({
 
 options(crayon.enabled = FALSE)
 
-# Load BASE Configuration (contains features, qc thresholds, colors, experiments, etc.)
+# Load BASE Configuration 
 base_config_path <- here("config/global_params.yml")
 if (!file.exists(base_config_path)) stop("[FATAL] Base Config file not found!")
 base_config <- yaml::read_yaml(base_config_path)
@@ -36,66 +36,96 @@ message("[System] Modules loaded successfully.")
 # ------------------------------------------------------------------------------
 for (exp_name in names(base_config$experiments)) {
   
-  # A. Merge Configs (Base + Experiment specific)
   exp_cfg <- base_config$experiments[[exp_name]]
-  config <- base_config # This creates the global config variable used by 01, 02, 03
   
-  config$project_name <- exp_name
-  config$clinical <- exp_cfg$clinical
-  if (!is.null(exp_cfg$input_file)) config$input_file <- exp_cfg$input_file
-  
-  # Construct nested output directory (e.g., results/Toxicity_1v0)
-  if (!is.null(config$project_name) && config$project_name != "") {
-    config$output_root <- file.path(base_config$output_root, config$project_name)
-  }
-  
-  # B. Logging Setup for this specific experiment
-  out_root <- here(config$output_root)
-  if (!dir.exists(out_root)) dir.create(out_root, recursive = TRUE)
-  
-  timestamp <- format(Sys.time(), "%Y%m%d_%H%M%S")
-  log_file <- file.path(out_root, paste0("pipeline_log_", timestamp, ".txt"))
+  # Determine Triggers
+  run_standard <- if (!is.null(exp_cfg$run_standard)) as.logical(exp_cfg$run_standard) else TRUE
+  run_longitudinal <- if (!is.null(exp_cfg$is_longitudinal)) as.logical(exp_cfg$is_longitudinal) else FALSE
   
   message(sprintf("\n========================================================"))
-  message(sprintf("STARTING EXPERIMENT: %s", config$project_name))
-  message(sprintf("Log file: %s", log_file))
+  message(sprintf("STARTING EXPERIMENT BLOCK: %s", exp_name))
   message(sprintf("========================================================\n"))
   
-  cat(sprintf("=== ONCO-HYBRID-PROFILER STARTED: %s ===\n", Sys.time()), file = log_file)
-  cat(sprintf("Experiment: %s\n", config$project_name), file = log_file, append = TRUE)
-  
-  log_handler <- function(m) {
-    cat(conditionMessage(m), file = log_file, append = TRUE, sep = "\n")
-  }
-  
-  warn_handler <- function(w) {
-    cat(paste0("WARNING: ", conditionMessage(w)), file = log_file, append = TRUE, sep = "\n")
-  }
-  
-  # C. Run Scripts
-  tryCatch({
-    withCallingHandlers({
-      
-      message("\n>>> RUNNING PHASE 1: DATA PROCESSING <<<")
-      source(here("src/01_data_processing.R"), echo = FALSE, local = FALSE)
-      
-      message("\n>>> RUNNING PHASE 2: VISUALIZATION <<<")
-      source(here("src/02_visualization.R"), echo = FALSE, local = FALSE)
-      
-      message("\n>>> RUNNING PHASE 3: STATISTICAL ANALYSIS & REPORTING <<<")
-      source(here("src/03_statistical_analysis.R"), echo = FALSE, local = FALSE)
-      
-      final_msg <- sprintf("\n=== EXPERIMENT FINISHED SUCCESSFULLY: %s ===", Sys.time())
-      message(final_msg)
-      
-    }, message = log_handler, warning = warn_handler)
+  # ============================================================================
+  # PASS 1: STANDARD CROSS-SECTIONAL PIPELINE (01, 02, 03)
+  # ============================================================================
+  if (run_standard) {
+    config <- base_config
+    config$project_name <- exp_name
+    config$clinical <- exp_cfg$clinical
+    config$is_longitudinal <- FALSE
     
-  }, error = function(e) {
-    err_msg <- paste0("\n[FATAL ERROR] Experiment stopped: ", e$message)
-    cat(err_msg, file = log_file, append = TRUE, sep = "\n")
-    message(err_msg)
-  })
+    if (!is.null(exp_cfg$input_file)) config$input_file <- exp_cfg$input_file
+    
+    config$output_root <- file.path(base_config$output_root, config$project_name)
+    if (!dir.exists(config$output_root)) dir.create(config$output_root, recursive = TRUE)
+    
+    log_file_std <- file.path(config$output_root, paste0("log_standard_", format(Sys.time(), "%Y%m%d_%H%M%S"), ".txt"))
+    
+    message(sprintf("\n--- [PASS 1] STANDARD PIPELINE: %s ---", config$project_name))
+    cat(sprintf("=== STANDARD PIPELINE STARTED: %s ===\n", Sys.time()), file = log_file_std)
+    
+    tryCatch({
+      withCallingHandlers({
+        message(">>> RUNNING PHASE 1: DATA PROCESSING <<<")
+        source(here("src/01_data_processing.R"), echo = FALSE, local = FALSE)
+        
+        message("\n>>> RUNNING PHASE 2: VISUALIZATION <<<")
+        source(here("src/02_visualization.R"), echo = FALSE, local = FALSE)
+        
+        message("\n>>> RUNNING PHASE 3: STATISTICAL ANALYSIS & REPORTING <<<")
+        source(here("src/03_statistical_analysis.R"), echo = FALSE, local = FALSE)
+        
+        message(sprintf("\n[SUCCESS] Standard Pipeline completed for: %s", exp_name))
+      }, message = function(m) cat(conditionMessage(m), file = log_file_std, append = TRUE, sep = "\n"),
+      warning = function(w) cat(paste0("WARNING: ", conditionMessage(w)), file = log_file_std, append = TRUE, sep = "\n"))
+    }, error = function(e) {
+      err_msg <- paste0("\n[FATAL ERROR] Standard Pipeline stopped: ", e$message)
+      cat(err_msg, file = log_file_std, append = TRUE, sep = "\n")
+      message(err_msg)
+    })
+  }
+  
+  # ============================================================================
+  # PASS 2: LONGITUDINAL PIPELINE (01 Joint, 04 LMM)
+  # ============================================================================
+  if (run_longitudinal) {
+    # Re-initialize a clean configuration object
+    config <- base_config
+    # Automatically suffix the project name to isolate outputs
+    config$project_name <- paste0(exp_name, "_Longitudinal") 
+    config$clinical <- exp_cfg$clinical
+    config$is_longitudinal <- TRUE
+    
+    if (!is.null(exp_cfg$input_file_t0)) config$input_file_t0 <- exp_cfg$input_file_t0
+    if (!is.null(exp_cfg$input_file_t1)) config$input_file_t1 <- exp_cfg$input_file_t1
+    
+    config$output_root <- file.path(base_config$output_root, config$project_name)
+    if (!dir.exists(config$output_root)) dir.create(config$output_root, recursive = TRUE)
+    
+    log_file_long <- file.path(config$output_root, paste0("log_longitudinal_", format(Sys.time(), "%Y%m%d_%H%M%S"), ".txt"))
+    
+    message(sprintf("\n--- [PASS 2] LONGITUDINAL PIPELINE: %s ---", config$project_name))
+    cat(sprintf("=== LONGITUDINAL PIPELINE STARTED: %s ===\n", Sys.time()), file = log_file_long)
+    
+    tryCatch({
+      withCallingHandlers({
+        message(">>> RUNNING PHASE 1: JOINT DATA PROCESSING <<<")
+        source(here("src/01_data_processing.R"), echo = FALSE, local = FALSE)
+        
+        message("\n>>> RUNNING PHASE 4: LONGITUDINAL LMM ANALYSIS <<<")
+        source(here("src/04_longitudinal_lmm.R"), echo = FALSE, local = FALSE)
+        
+        message(sprintf("\n[SUCCESS] Longitudinal Pipeline completed for: %s", exp_name))
+      }, message = function(m) cat(conditionMessage(m), file = log_file_long, append = TRUE, sep = "\n"),
+      warning = function(w) cat(paste0("WARNING: ", conditionMessage(w)), file = log_file_long, append = TRUE, sep = "\n"))
+    }, error = function(e) {
+      err_msg <- paste0("\n[FATAL ERROR] Longitudinal Pipeline stopped: ", e$message)
+      cat(err_msg, file = log_file_long, append = TRUE, sep = "\n")
+      message(err_msg)
+    })
+  }
 }
 
 options(crayon.enabled = TRUE)
-message("\n=== ALL EXPERIMENTS COMPLETED ===")
+message("\n=== ALL EXPERIMENT BLOCKS COMPLETED ===")

@@ -18,18 +18,38 @@ if (!exists("config")) {
   config <- load_config(config_path)
 }
 
-# Use basic readxl for single file (ignoring old multi-sheet logic)
-input_file <- config$input_file
-if (!file.exists(input_file)) stop(sprintf("Input file not found: %s", input_file))
-raw_data <- readxl::read_excel(input_file)
-
-# Standardize Patient ID column (assume it's the first column)
-colnames(raw_data)[1] <- "Patient_ID"
-
-# [BUGFIX] Ensure Patient_ID is strictly unique to prevent downstream mixOmics crashes
-if (any(duplicated(raw_data$Patient_ID))) {
-  warning("[Data] Found duplicated Patient_IDs in the raw data. Applying make.unique().")
-  raw_data$Patient_ID <- make.unique(as.character(raw_data$Patient_ID))
+# Handle Longitudinal vs Cross-Sectional Data Ingestion
+if (isTRUE(config$is_longitudinal)) {
+  if (is.null(config$input_file_t0) || is.null(config$input_file_t1)) {
+    stop("[FATAL] config$input_file_t0 and config$input_file_t1 are required for longitudinal mode.")
+  }
+  if (!file.exists(config$input_file_t0)) stop(sprintf("T0 Input file not found: %s", config$input_file_t0))
+  if (!file.exists(config$input_file_t1)) stop(sprintf("T1 Input file not found: %s", config$input_file_t1))
+  
+  raw_t0 <- readxl::read_excel(config$input_file_t0) %>% dplyr::mutate(Timepoint = "T0")
+  raw_t1 <- readxl::read_excel(config$input_file_t1) %>% dplyr::mutate(Timepoint = "T1")
+  
+  # Standardize IDs before binding
+  colnames(raw_t0)[1] <- "Patient_ID"
+  colnames(raw_t1)[1] <- "Patient_ID"
+  raw_data <- dplyr::bind_rows(raw_t0, raw_t1)
+  
+  # Create a unique composite ID for matrices, preserving original Patient_ID for pairing
+  raw_data$Sample_ID <- paste(as.character(raw_data$Patient_ID), raw_data$Timepoint, sep = "_")
+  
+} else {
+  input_file <- config$input_file
+  if (!file.exists(input_file)) stop(sprintf("Input file not found: %s", input_file))
+  raw_data <- readxl::read_excel(input_file)
+  
+  colnames(raw_data)[1] <- "Patient_ID"
+  raw_data$Timepoint <- "Baseline"
+  
+  if (any(duplicated(raw_data$Patient_ID))) {
+    warning("[Data] Found duplicated Patient_IDs. Applying make.unique().")
+    raw_data$Patient_ID <- make.unique(as.character(raw_data$Patient_ID))
+  }
+  raw_data$Sample_ID <- as.character(raw_data$Patient_ID)
 }
 
 # 2. Setup Initial Matrices & Clinical Filtering
@@ -78,8 +98,8 @@ if (length(missing_markers) > 0) {
 
 # Build strictly numeric matrix
 mat_raw <- as.matrix(raw_filtered[, target_markers])
-rownames(mat_raw) <- raw_filtered$Patient_ID
-metadata_raw <- raw_filtered %>% dplyr::select(Patient_ID, Group)
+rownames(mat_raw) <- raw_filtered$Sample_ID
+metadata_raw <- raw_filtered %>% dplyr::select(Patient_ID, Sample_ID, Timepoint, Group)
 
 message(sprintf("[Data] Initial Matrix: %d Samples x %d Hybrid Markers", nrow(mat_raw), ncol(mat_raw)))
 

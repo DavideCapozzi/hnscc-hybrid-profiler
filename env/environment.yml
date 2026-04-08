@@ -1,0 +1,111 @@
+name: clinical-traits-profiler
+
+channels:
+  - conda-forge
+  - bioconda
+  - nodefaults
+
+pin_subdir: linux-64
+
+dependencies:
+  # === BASE R ===
+  - r-base=4.3.*
+  
+  # === CONFIGURATION & IO ===
+  - r-yaml             
+  - r-readxl           
+
+  # === EXPLICIT CRITICAL DEPENDENCIES ===
+  - r-cairo            
+  - r-lattice          
+  - r-rcolorbrewer     
+  - r-interp           
+  - r-latticeextra     
+
+  # === DATA MANIPULATION & VISUALIZATION (TIDYVERSE) ===
+  - r-tidyverse
+  - r-factoextra       
+  - r-factominer     
+  - r-ggpubr           
+  - r-cowplot          
+  - r-patchwork        
+  - r-viridis          
+  - r-corrplot         
+  - r-ggraph           
+  - r-janitor
+  - r-qgraph
+  - r-metrics
+  - r-psych
+  - r-fdrtool
+  - r-networkcomparisontest 
+  - r-ggvenndiagram
+
+
+  # === CORE COMPOSITIONALITY PACKAGES ===
+  - bioconductor-aldex2       
+  - r-zcompositions           
+  - r-compositions>=2.0       
+  - r-hmisc                   
+  - r-robcompositions
+
+  # === PROPELLER (VIA SPECKLE) ===
+  - bioconductor-speckle      
+  - bioconductor-limma        
+
+  # === BATCH CORRECTION & IMPUTATION ===
+  - bioconductor-sva          
+  - r-mice                    
+
+  # === DIMENSIONALITY REDUCTION ===
+  - bioconductor-pcamethods
+  - bioconductor-mixomics
+
+  # === NETWORK ANALYSIS & ROBUST STATISTICS ===
+  - r-igraph>=2.0
+  - r-tidygraph
+  - r-corpcor         
+  - r-huge            
+  - r-pulsar         
+
+  # === PARALLEL COMPUTING ===
+  - r-doparallel       
+  - r-foreach          
+
+  # === CLUSTERING & SURVIVAL ===
+  - bioconductor-consensusclusterplus 
+  - bioconductor-complexheatmap       
+  - r-survival                        
+  - r-survminer                       
+  - r-wgcna                           
+
+  # === UTILITY PACKAGES ===
+  - r-conflicted
+  - r-rmarkdown
+  - r-knitr
+  - r-reshape2
+  - r-data.table
+  - r-dt               
+  - r-biocmanager      
+  - r-openxlsx
+  - r-writexl
+
+  # === STATISTICS ===
+  - r-pwr              
+  - bioconductor-multtest
+  - r-vegan
+  - r-lmertest  
+
+  # === BIOCONDUCTOR CORE ===
+  - bioconductor-biobase
+  - bioconductor-biocgenerics
+  - bioconductor-s4vectors
+  - bioconductor-iranges
+  - bioconductor-genomicranges
+  
+  # === DEVELOPMENT TOOLS ===
+  - git
+  - make
+  - cmake
+  - pandoc             
+  - r-devtools         
+  - r-remotes
