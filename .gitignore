@@ -3,3 +3,4 @@ results*
 results_results-hnscc/
 .Rproj.user
 *.Rproj
+.Rhistory

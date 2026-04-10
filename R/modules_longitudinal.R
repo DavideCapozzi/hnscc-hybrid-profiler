@@ -51,6 +51,7 @@ fit_feature_lmm <- function(data_long, feature, group_col = "Group",
     Std_Error = NA,
     P_Value_Interaction = NA,
     Model_Converged = FALSE,
+    Is_Singular = NA, 
     N_Observations = nrow(df_model)
   )
   
@@ -61,8 +62,13 @@ fit_feature_lmm <- function(data_long, feature, group_col = "Group",
     if (length(valid_covs) > 0) formula_str <- paste(formula_str, "+", paste(valid_covs, collapse = " + "))
     formula_str <- paste(formula_str, "+ (1 | ID)")
     
-    mod <- lmerTest::lmer(as.formula(formula_str), data = df_model, 
-                          REML = TRUE, control = lme4::lmerControl(calc.derivs = FALSE))
+    # Suppress verbose messages from lmer, we formally capture singularity status instead
+    mod <- suppressMessages(suppressWarnings(
+      lmerTest::lmer(as.formula(formula_str), data = df_model, 
+                     REML = TRUE, control = lme4::lmerControl(calc.derivs = FALSE))
+    ))
+    
+    result$Is_Singular <- lme4::isSingular(mod)
     
     mod_summary <- summary(mod)
     coef_table <- mod_summary$coefficients
@@ -83,10 +89,71 @@ fit_feature_lmm <- function(data_long, feature, group_col = "Group",
       }
     }
   }, error = function(e) {
-  }, warning = function(w) {
+    # Silent fail on calculation error, returning NA defaults
   })
   
   return(result)
+}
+
+#' @title Plot Longitudinal Trajectories (Spaghetti + Boxplot)
+#' @description Visualizes patient trajectories over time, split by group.
+#' @param data_long Dataframe in long format.
+#' @param feature String. Marker name.
+#' @param group_col String.
+#' @param time_col String.
+#' @param id_col String.
+#' @param colors Named vector of colors.
+#' @param p_val Optional numeric. P-value or FDR to display in subtitle.
+#' @return A ggplot object.
+plot_lmm_trajectories <- function(data_long, feature, group_col = "Group", 
+                                  time_col = "Timepoint", id_col = "Patient_ID",
+                                  colors = NULL, p_val = NULL) {
+  
+  require(ggplot2)
+  
+  # Ensure NAs are dropped for pure visualization
+  plot_df <- data_long[!is.na(data_long[[feature]]), ]
+  
+  sub_title <- "Patient trajectories over time"
+  if (!is.null(p_val)) {
+    metric_name <- if (p_val < 0.05 && p_val > 0.0000) "FDR/P-Value" else "Interaction P-Value"
+    sub_title <- sprintf("%s: %.4f", metric_name, p_val)
+  }
+  
+  p <- ggplot(plot_df, aes(x = .data[[time_col]], y = .data[[feature]], fill = .data[[group_col]])) +
+    
+    # Base Boxplot distribution
+    geom_boxplot(alpha = 0.5, outlier.shape = NA, width = 0.4) +
+    
+    # Spaghetti Lines (Connecting individual patients)
+    geom_line(aes(group = .data[[id_col]], color = .data[[group_col]]), alpha = 0.3, linewidth = 0.6) +
+    
+    # Individual Points
+    geom_point(aes(fill = .data[[group_col]]), shape = 21, size = 2.5, color = "white", stroke = 0.3) +
+    
+    # Split by clinical group
+    facet_wrap(as.formula(paste("~", group_col))) +
+    
+    # Aesthetics scaling
+    scale_fill_manual(values = colors) +
+    scale_color_manual(values = colors) +
+    
+    labs(
+      title = paste("Trajectory:", feature),
+      subtitle = sub_title,
+      x = "Timepoint", 
+      y = "Expression Level (Hybrid Scale)"
+    ) +
+    theme_bw(base_size = 12) +
+    theme(
+      legend.position = "none",
+      strip.background = element_rect(fill = "gray95"),
+      strip.text = element_text(face = "bold"),
+      plot.title = element_text(face = "bold", hjust = 0.5),
+      plot.subtitle = element_text(hjust = 0.5, color = "gray40")
+    )
+  
+  return(p)
 }
 
 #' @title Volcano Plot for LMM Results

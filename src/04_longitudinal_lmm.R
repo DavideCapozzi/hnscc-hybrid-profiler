@@ -44,6 +44,19 @@ message(sprintf("   [Data] Longitudinal Matrix formed: %d total observations (T0
 # Extract covariates from config if defined
 covariates_list <- if (!is.null(config$clinical$covariates)) unlist(config$clinical$covariates) else NULL
 
+# Align colors safely for trajectory plotting
+colors_viz <- c()
+resp_lbl <- config$clinical$responder_label
+nresp_lbl <- config$clinical$non_responder_label
+
+if (!is.null(config$colors$groups[[resp_lbl]])) {
+  colors_viz[resp_lbl] <- config$colors$groups[[resp_lbl]]
+} else { colors_viz[resp_lbl] <- "blue" }
+
+if (!is.null(config$colors$groups[[nresp_lbl]])) {
+  colors_viz[nresp_lbl] <- config$colors$groups[[nresp_lbl]]
+} else { colors_viz[nresp_lbl] <- "red" }
+
 # 2. Execution of Linear Mixed Models
 message("\n[Stats] Running Linear Mixed Models (LMM) for all markers...")
 
@@ -114,5 +127,44 @@ tryCatch({
   if (!is.null(p_volcano)) print(p_volcano)
 }, error = function(e) warning(paste("Volcano plot failed:", e$message)))
 dev.off()
+
+# 6. Trajectory Plots for Top Features
+message("\n[Viz] Generating Trajectory Plots for top markers...")
+
+# Fallback logic: If FDR significant exist, use them. Else use top 4 by raw p-value.
+top_df <- df_results %>% dplyr::filter(FDR_Interaction < 0.05)
+sig_type <- "FDR"
+
+if (nrow(top_df) == 0) {
+  top_df <- df_results %>% dplyr::arrange(P_Value_Interaction) %>% head(4)
+  sig_type <- "RAW"
+  message("   [Viz] No FDR significant features found. Plotting top 4 by raw p-value.")
+}
+
+if (nrow(top_df) > 0) {
+  traj_path <- file.path(out_dir, sprintf("Trajectories_LMM_%s.pdf", config$project_name))
+  pdf(traj_path, width = 8, height = 6)
+  
+  for (i in 1:nrow(top_df)) {
+    mk <- top_df$Marker[i]
+    pval_disp <- if (sig_type == "FDR") top_df$FDR_Interaction[i] else top_df$P_Value_Interaction[i]
+    
+    tryCatch({
+      p_traj <- plot_lmm_trajectories(
+        data_long = df_model,
+        feature = mk,
+        group_col = "Group",
+        time_col = "Timepoint",
+        id_col = "Patient_ID",
+        colors = colors_viz,
+        p_val = pval_disp
+      )
+      print(p_traj)
+    }, error = function(e) warning(sprintf("Trajectory plot failed for %s: %s", mk, e$message)))
+  }
+  
+  dev.off()
+  message(sprintf("   [Output] Trajectory plots saved: %s", basename(traj_path)))
+}
 
 message("=== STEP 4 COMPLETE ===\n")
