@@ -44,6 +44,19 @@ message(sprintf("   [Data] Longitudinal Matrix formed: %d total observations (T0
 # Extract covariates from config if defined
 covariates_list <- if (!is.null(config$clinical$covariates)) unlist(config$clinical$covariates) else NULL
 
+# --- SAFETY CHECK: Prevent Silent Cohort Decimation via Covariates ---
+if (!is.null(covariates_list) && length(intersect(covariates_list, colnames(df_model))) > 0) {
+  valid_covs <- intersect(covariates_list, colnames(df_model))
+  na_rows <- sum(!complete.cases(df_model[, valid_covs, drop = FALSE]))
+  pct_na <- na_rows / nrow(df_model)
+  
+  if (pct_na > 0.10) {
+    stop(sprintf("[FATAL] Covariates introduce %.1f%% missingness (>10%% safety limit). Aborting to prevent silent cohort decimation. Please impute or drop problematic clinical covariates.", pct_na * 100))
+  } else if (pct_na > 0) {
+    message(sprintf("   [Data] Note: Covariates will exclude %d observations (%.1f%% of cohort).", na_rows, pct_na * 100))
+  }
+}
+
 # Align colors safely for trajectory plotting
 colors_viz <- c()
 resp_lbl <- config$clinical$responder_label
@@ -88,7 +101,29 @@ n_sig_fdr <- sum(df_results$FDR_Interaction < 0.05, na.rm = TRUE)
 message(sprintf("\n[Stats] LMM Analysis complete. %d markers significant (p < 0.05), %d survive FDR correction.", 
                 n_sig_raw, n_sig_fdr))
 
-# 4. Exporting Results
+# 4. LOO Sensitivity Analysis (Only for FDR significant markers)
+df_results$Max_P_Value_LOO <- NA
+
+if (n_sig_fdr > 0) {
+  message("   [Stats] Running Leave-One-Out (LOO) Sensitivity Analysis on top drivers...")
+  sig_markers <- df_results$Marker[which(df_results$FDR_Interaction < 0.05)]
+  
+  for (mk in sig_markers) {
+    max_p <- run_loo_sensitivity(data_long = df_model, feature = mk, group_col = "Group", 
+                                 time_col = "Timepoint", id_col = "Patient_ID", 
+                                 covariates = covariates_list)
+    
+    df_results$Max_P_Value_LOO[df_results$Marker == mk] <- max_p
+    
+    if (!is.na(max_p) && max_p < 0.05) {
+      message(sprintf("      -> %s: LOO Robust (Max P = %.4f)", mk, max_p))
+    } else {
+      message(sprintf("      -> %s: OUTLIER WARNING (Max P drops to %.4f)", mk, max_p))
+    }
+  }
+}
+
+# 5. Exporting Results
 json_path <- file.path(out_dir, sprintf("Machine_Metrics_LMM_%s.json", config$project_name))
 machine_output <- list(
   project_name = config$project_name,
@@ -119,7 +154,7 @@ if (length(p_col_idx) > 0) {
 openxlsx::saveWorkbook(wb, excel_path, overwrite = TRUE)
 message(sprintf("   [Output] Full statistics saved: %s", basename(excel_path)))
 
-# 5. Volcano Plot Generation
+# 6. Volcano Plot Generation
 plot_path <- file.path(out_dir, sprintf("Volcano_LMM_%s.pdf", config$project_name))
 pdf(plot_path, width = 9, height = 7)
 tryCatch({
@@ -128,7 +163,7 @@ tryCatch({
 }, error = function(e) warning(paste("Volcano plot failed:", e$message)))
 dev.off()
 
-# 6. Trajectory Plots for Top Features
+# 7. Trajectory Plots for Top Features
 message("\n[Viz] Generating Trajectory Plots for top markers...")
 
 # Fallback logic: If FDR significant exist, use them. Else use top 4 by raw p-value.

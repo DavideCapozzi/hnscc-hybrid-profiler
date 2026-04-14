@@ -11,6 +11,7 @@ library(ggrepel)
 
 #' @title Run Linear Mixed Model on a single feature
 #' @description Fits LMM with an interaction term between Time and Clinical Group.
+#' Includes internal standard deviation scaling and Marginal Time Effect extraction.
 #' @param data_long Dataframe in long format.
 #' @param feature String. Name of the column containing feature values.
 #' @param group_col String. Name of the column containing clinical labels.
@@ -26,8 +27,12 @@ fit_feature_lmm <- function(data_long, feature, group_col = "Group",
     stop("Package 'lmerTest' is required for p-value calculation in LMM.")
   }
   
+  raw_vals <- as.numeric(data_long[[feature]])
+  val_sd <- sd(raw_vals, na.rm = TRUE)
+  if (is.na(val_sd) || val_sd == 0) val_sd <- 1 # Safety fallback for zero variance
+  
   df_list <- list(
-    Value = as.numeric(data_long[[feature]]),
+    Value = raw_vals / val_sd, # Internal scaling for optimizer convergence
     Time = as.factor(data_long[[time_col]]),
     Group = as.factor(data_long[[group_col]]),
     ID = as.factor(data_long[[id_col]])
@@ -50,6 +55,8 @@ fit_feature_lmm <- function(data_long, feature, group_col = "Group",
     T_Value_Interaction = NA,
     Std_Error = NA,
     P_Value_Interaction = NA,
+    Estimate_Time_Main = NA,
+    P_Value_Time_Main = NA,
     Model_Converged = FALSE,
     Is_Singular = NA, 
     N_Observations = nrow(df_model)
@@ -58,41 +65,88 @@ fit_feature_lmm <- function(data_long, feature, group_col = "Group",
   if (nrow(df_model) < 10) return(result)
   
   tryCatch({
-    formula_str <- "Value ~ Time * Group"
-    if (length(valid_covs) > 0) formula_str <- paste(formula_str, "+", paste(valid_covs, collapse = " + "))
-    formula_str <- paste(formula_str, "+ (1 | ID)")
+    # --- MODEL 1: Interaction Model (Primary Objective) ---
+    formula_int <- "Value ~ Time * Group"
+    if (length(valid_covs) > 0) formula_int <- paste(formula_int, "+", paste(valid_covs, collapse = " + "))
+    formula_int <- paste(formula_int, "+ (1 | ID)")
     
-    # Suppress verbose messages from lmer, we formally capture singularity status instead
-    mod <- suppressMessages(suppressWarnings(
-      lmerTest::lmer(as.formula(formula_str), data = df_model, 
+    mod_int <- suppressMessages(suppressWarnings(
+      lmerTest::lmer(as.formula(formula_int), data = df_model, 
                      REML = TRUE, control = lme4::lmerControl(calc.derivs = FALSE))
     ))
     
-    result$Is_Singular <- lme4::isSingular(mod)
+    result$Is_Singular <- lme4::isSingular(mod_int)
     
-    mod_summary <- summary(mod)
-    coef_table <- mod_summary$coefficients
-    
-    interaction_idx <- grep("Time.*:Group", rownames(coef_table))
+    coef_table_int <- summary(mod_int)$coefficients
+    interaction_idx <- grep("Time.*:Group", rownames(coef_table_int))
     
     if (length(interaction_idx) == 1) {
-      result$Estimate_Interaction <- coef_table[interaction_idx, "Estimate"]
-      result$Std_Error <- coef_table[interaction_idx, "Std. Error"]
+      result$Estimate_Interaction <- coef_table_int[interaction_idx, "Estimate"]
+      result$Std_Error <- coef_table_int[interaction_idx, "Std. Error"]
       
-      t_col <- grep("t value", colnames(coef_table))
-      if (length(t_col) == 1) result$T_Value_Interaction <- coef_table[interaction_idx, t_col]
+      t_col <- grep("t value", colnames(coef_table_int))
+      if (length(t_col) == 1) result$T_Value_Interaction <- coef_table_int[interaction_idx, t_col]
       
-      p_col <- grep("Pr\\(>\\|t\\|\\)", colnames(coef_table))
+      p_col <- grep("Pr\\(>\\|t\\|\\)", colnames(coef_table_int))
       if (length(p_col) == 1) {
-        result$P_Value_Interaction <- coef_table[interaction_idx, p_col]
+        result$P_Value_Interaction <- coef_table_int[interaction_idx, p_col]
         result$Model_Converged <- TRUE
       }
     }
+    
+    # --- MODEL 2: Marginal Time Model (Positive Control) ---
+    formula_time <- "Value ~ Time"
+    if (length(valid_covs) > 0) formula_time <- paste(formula_time, "+", paste(valid_covs, collapse = " + "))
+    formula_time <- paste(formula_time, "+ (1 | ID)")
+    
+    mod_time <- suppressMessages(suppressWarnings(
+      lmerTest::lmer(as.formula(formula_time), data = df_model, 
+                     REML = TRUE, control = lme4::lmerControl(calc.derivs = FALSE))
+    ))
+    
+    coef_table_time <- summary(mod_time)$coefficients
+    time_idx <- grep("Time", rownames(coef_table_time))
+    
+    if (length(time_idx) == 1) {
+      result$Estimate_Time_Main <- coef_table_time[time_idx, "Estimate"]
+      p_col <- grep("Pr\\(>\\|t\\|\\)", colnames(coef_table_time))
+      if (length(p_col) == 1) result$P_Value_Time_Main <- coef_table_time[time_idx, p_col]
+    }
+    
   }, error = function(e) {
     # Silent fail on calculation error, returning NA defaults
   })
   
   return(result)
+}
+
+#' @title Run Leave-One-Out (LOO) Sensitivity Analysis
+#' @description Iteratively drops one patient at a time to test interaction robustness.
+#' @return Numeric. The maximum (worst-case) interaction P-value found across all iterations.
+run_loo_sensitivity <- function(data_long, feature, group_col = "Group", 
+                                time_col = "Timepoint", id_col = "Patient_ID",
+                                covariates = NULL) {
+  
+  unique_ids <- unique(data_long[[id_col]])
+  max_p_val <- 0
+  
+  for (drop_id in unique_ids) {
+    # Create LOO dataset
+    df_subset <- data_long[data_long[[id_col]] != drop_id, ]
+    
+    # Fit model silently
+    res <- fit_feature_lmm(data_long = df_subset, feature = feature, 
+                           group_col = group_col, time_col = time_col, 
+                           id_col = id_col, covariates = covariates)
+    
+    # Track the worst p-value
+    current_p <- res$P_Value_Interaction
+    if (!is.na(current_p) && current_p > max_p_val) {
+      max_p_val <- current_p
+    }
+  }
+  
+  return(if (max_p_val == 0) NA else max_p_val)
 }
 
 #' @title Plot Longitudinal Trajectories (Spaghetti + Boxplot)
