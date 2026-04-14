@@ -1200,3 +1200,32 @@ viz_plot_edge_density_overlay <- function(pcor_mat, cor_mat, adj_mat = NULL, thr
   
   return(p)
 }
+
+#' @title Extract Clinical Colors
+#' @description Safely extracts colors for responder and non-responder labels from the global configuration.
+#' Provides robust hex color fallbacks if configuration is missing.
+#' @param config Global configuration list object.
+#' @return A named character vector of hex color codes.
+#' @export
+get_clinical_colors <- function(config) {
+  resp_lbl <- config$clinical$responder_label
+  nresp_lbl <- config$clinical$non_responder_label
+  
+  colors_viz <- c()
+  
+  if (!is.null(config$colors$groups[[resp_lbl]])) {
+    colors_viz[resp_lbl] <- config$colors$groups[[resp_lbl]]
+  } else {
+    colors_viz[resp_lbl] <- "#2E8B57" # Default SeaGreen
+    warning(sprintf("[Viz] Missing color configuration for '%s'. Applying default green.", resp_lbl))
+  }
+  
+  if (!is.null(config$colors$groups[[nresp_lbl]])) {
+    colors_viz[nresp_lbl] <- config$colors$groups[[nresp_lbl]]
+  } else {
+    colors_viz[nresp_lbl] <- "#B2182B" # Default Firebrick
+    warning(sprintf("[Viz] Missing color configuration for '%s'. Applying default red.", nresp_lbl))
+  }
+  
+  return(colors_viz)
+}

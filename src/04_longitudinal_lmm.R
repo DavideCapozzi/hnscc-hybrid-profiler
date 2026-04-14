@@ -1,24 +1,27 @@
 # src/04_longitudinal_lmm.R
 # ==============================================================================
 # STEP 04: LONGITUDINAL LMM ANALYSIS
-# Description: Loads joint processed data to evaluate Temporal x Clinical interaction.
+# Description: Fits Linear Mixed Models to evaluate Time x Clinical Interaction.
+#              Includes LOO Sensitivity Analysis to protect against outlier bias.
 # ==============================================================================
 
 source("R/utils_io.R")
 source("R/modules_longitudinal.R")
+source("R/modules_viz.R")
 
 message("\n=== PIPELINE STEP 4: LONGITUDINAL ANALYSIS (LMM) ===")
 
-# 1. Configuration & Data Loading
-if (!exists("config")) stop("[FATAL] Configuration not loaded.")
+# 1. Configuration & Data Parsing
+# ------------------------------------------------------------------------------
+if (!exists("config")) stop("[FATAL] Global configuration object not detected in environment.")
 
 input_rds <- file.path(config$output_root, "01_data_processing", sprintf("data_processed_%s_longitudinal.rds", config$project_name))
-if (!file.exists(input_rds)) stop(sprintf("[FATAL] Step 01 longitudinal output not found: %s", input_rds))
+if (!file.exists(input_rds)) stop(sprintf("[FATAL] Step 01 longitudinal processed dataset not found at: %s", input_rds))
 
 out_dir <- file.path(config$output_root, "04_longitudinal_analysis")
 if (!dir.exists(out_dir)) dir.create(out_dir, recursive = TRUE)
 
-message(sprintf("[Data] Loading Joint Processed Dataset: %s", basename(input_rds)))
+message(sprintf("[Data] Loading Joint Pharmacodynamic Dataset: %s", basename(input_rds)))
 DATA <- readRDS(input_rds)
 
 df_long <- DATA$hybrid_data_raw
@@ -38,40 +41,31 @@ if (ref_level %in% avail_levels) {
   df_model$Group <- factor(df_model$Group)
 }
 
-message(sprintf("   [Data] Longitudinal Matrix formed: %d total observations (T0: %d, T1: %d)", 
+message(sprintf("   [Data] Longitudinal dimensions established: %d matrix observations (T0: %d, T1: %d)", 
                 nrow(df_model), sum(df_model$Timepoint == "T0"), sum(df_model$Timepoint == "T1")))
 
-# Extract covariates from config if defined
 covariates_list <- if (!is.null(config$clinical$covariates)) unlist(config$clinical$covariates) else NULL
 
 # --- SAFETY CHECK: Prevent Silent Cohort Decimation via Covariates ---
+safe_max_na_covariates <- if(!is.null(config$qc$max_na_covariates)) config$qc$max_na_covariates else 0.10
+
 if (!is.null(covariates_list) && length(intersect(covariates_list, colnames(df_model))) > 0) {
   valid_covs <- intersect(covariates_list, colnames(df_model))
   na_rows <- sum(!complete.cases(df_model[, valid_covs, drop = FALSE]))
   pct_na <- na_rows / nrow(df_model)
   
-  if (pct_na > 0.10) {
-    stop(sprintf("[FATAL] Covariates introduce %.1f%% missingness (>10%% safety limit). Aborting to prevent silent cohort decimation. Please impute or drop problematic clinical covariates.", pct_na * 100))
+  if (pct_na > safe_max_na_covariates) {
+    stop(sprintf("[FATAL] Security Gate Triggered: Covariates induce %.1f%% missingness, exceeding the safety threshold (%.1f%%). Aborting to prevent silent cohort decimation.", pct_na * 100, safe_max_na_covariates * 100))
   } else if (pct_na > 0) {
-    message(sprintf("   [Data] Note: Covariates will exclude %d observations (%.1f%% of cohort).", na_rows, pct_na * 100))
+    message(sprintf("   [Data] Notice: Covariate inclusion will drop %d observations (%.1f%% of cohort).", na_rows, pct_na * 100))
   }
 }
 
-# Align colors safely for trajectory plotting
-colors_viz <- c()
-resp_lbl <- config$clinical$responder_label
-nresp_lbl <- config$clinical$non_responder_label
+colors_viz <- get_clinical_colors(config)
 
-if (!is.null(config$colors$groups[[resp_lbl]])) {
-  colors_viz[resp_lbl] <- config$colors$groups[[resp_lbl]]
-} else { colors_viz[resp_lbl] <- "blue" }
-
-if (!is.null(config$colors$groups[[nresp_lbl]])) {
-  colors_viz[nresp_lbl] <- config$colors$groups[[nresp_lbl]]
-} else { colors_viz[nresp_lbl] <- "red" }
-
-# 2. Execution of Linear Mixed Models
-message("\n[Stats] Running Linear Mixed Models (LMM) for all markers...")
+# 2. Linear Mixed Models Computation
+# ------------------------------------------------------------------------------
+message("\n[Stats] Initiating Linear Mixed Models (LMM) for longitudinal variance extraction...")
 
 results_list <- list()
 pb <- txtProgressBar(min = 0, max = length(DATA$hybrid_markers), style = 3)
@@ -89,7 +83,8 @@ close(pb)
 df_results <- do.call(rbind, results_list)
 rownames(df_results) <- NULL
 
-# 3. FDR Correction 
+# 3. Multi-Testing Correction (FDR)
+# ------------------------------------------------------------------------------
 df_results <- df_results %>%
   dplyr::filter(!is.na(P_Value_Interaction)) %>%
   dplyr::mutate(FDR_Interaction = p.adjust(P_Value_Interaction, method = "BH")) %>%
@@ -98,14 +93,15 @@ df_results <- df_results %>%
 n_sig_raw <- sum(df_results$P_Value_Interaction < 0.05, na.rm = TRUE)
 n_sig_fdr <- sum(df_results$FDR_Interaction < 0.05, na.rm = TRUE)
 
-message(sprintf("\n[Stats] LMM Analysis complete. %d markers significant (p < 0.05), %d survive FDR correction.", 
+message(sprintf("\n[Stats] LMM integration successful. Identified %d raw significant markers, %d survive FDR adjustment.", 
                 n_sig_raw, n_sig_fdr))
 
-# 4. LOO Sensitivity Analysis (Only for FDR significant markers)
+# 4. LOO Sensitivity Security Check (FDR subset only)
+# ------------------------------------------------------------------------------
 df_results$Max_P_Value_LOO <- NA
 
 if (n_sig_fdr > 0) {
-  message("   [Stats] Running Leave-One-Out (LOO) Sensitivity Analysis on top drivers...")
+  message("   [Stats] Executing Leave-One-Out (LOO) Sensitivity protocol on topological drivers...")
   sig_markers <- df_results$Marker[which(df_results$FDR_Interaction < 0.05)]
   
   for (mk in sig_markers) {
@@ -116,14 +112,15 @@ if (n_sig_fdr > 0) {
     df_results$Max_P_Value_LOO[df_results$Marker == mk] <- max_p
     
     if (!is.na(max_p) && max_p < 0.05) {
-      message(sprintf("      -> %s: LOO Robust (Max P = %.4f)", mk, max_p))
+      message(sprintf("      -> %s: Structurally Robust (Max P-Value = %.4f)", mk, max_p))
     } else {
-      message(sprintf("      -> %s: OUTLIER WARNING (Max P drops to %.4f)", mk, max_p))
+      warning(sprintf("      -> %s: OUTLIER BIAS DETECTED (Max P-Value spikes to %.4f upon LOO)", mk, max_p))
     }
   }
 }
 
-# 5. Exporting Results
+# 5. Output Serialization
+# ------------------------------------------------------------------------------
 json_path <- file.path(out_dir, sprintf("Machine_Metrics_LMM_%s.json", config$project_name))
 machine_output <- list(
   project_name = config$project_name,
@@ -152,28 +149,27 @@ if (length(p_col_idx) > 0) {
                                   rows = 2:(nrow(df_results)+1), rule = "< 0.05", style = sig_style)
 }
 openxlsx::saveWorkbook(wb, excel_path, overwrite = TRUE)
-message(sprintf("   [Output] Full statistics saved: %s", basename(excel_path)))
+message(sprintf("   [Output] Mathematical models matrix saved: %s", basename(excel_path)))
 
-# 6. Volcano Plot Generation
+# 6. Volcano Plot & Trajectory Rendering
+# ------------------------------------------------------------------------------
 plot_path <- file.path(out_dir, sprintf("Volcano_LMM_%s.pdf", config$project_name))
 pdf(plot_path, width = 9, height = 7)
 tryCatch({
-  p_volcano <- plot_lmm_volcano(df_results, title = sprintf("LMM Interaction: Time x %s", config$clinical$target_column))
+  p_volcano <- plot_lmm_volcano(df_results, title = sprintf("LMM Pharmacodynamics: Time x %s", config$clinical$target_column))
   if (!is.null(p_volcano)) print(p_volcano)
-}, error = function(e) warning(paste("Volcano plot failed:", e$message)))
+}, error = function(e) warning(paste("Volcano plot rendering failed:", e$message)))
 dev.off()
 
-# 7. Trajectory Plots for Top Features
-message("\n[Viz] Generating Trajectory Plots for top markers...")
+message("\n[Viz] Generating Patient Trajectory vectors...")
 
-# Fallback logic: If FDR significant exist, use them. Else use top 4 by raw p-value.
 top_df <- df_results %>% dplyr::filter(FDR_Interaction < 0.05)
 sig_type <- "FDR"
 
 if (nrow(top_df) == 0) {
   top_df <- df_results %>% dplyr::arrange(P_Value_Interaction) %>% head(4)
   sig_type <- "RAW"
-  message("   [Viz] No FDR significant features found. Plotting top 4 by raw p-value.")
+  message("   [Viz] Null set for FDR boundaries. Defaulting plot limits to top 4 absolute P-values.")
 }
 
 if (nrow(top_df) > 0) {
@@ -195,11 +191,11 @@ if (nrow(top_df) > 0) {
         p_val = pval_disp
       )
       print(p_traj)
-    }, error = function(e) warning(sprintf("Trajectory plot failed for %s: %s", mk, e$message)))
+    }, error = function(e) warning(sprintf("Trajectory matrix error on marker %s: %s", mk, e$message)))
   }
   
   dev.off()
-  message(sprintf("   [Output] Trajectory plots saved: %s", basename(traj_path)))
+  message(sprintf("   [Output] Temporal trajectory visualizations exported: %s", basename(traj_path)))
 }
 
 message("=== STEP 4 COMPLETE ===\n")

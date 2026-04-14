@@ -100,6 +100,7 @@ qc:
   max_na_row_pct: 0.40       
   max_na_col_facs_pct: 0.20  
   max_na_col_sol_pct: 0.50   
+  max_na_covariates: 0.10
   remove_outliers: true
   outlier_conf_level: 0.99
 
