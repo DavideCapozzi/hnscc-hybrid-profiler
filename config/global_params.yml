@@ -1,11 +1,11 @@
 # ==============================================================================
-# BASE CONFIGURATION: onco-hybrid-profiler (Global Parameters)
+# BASE CONFIGURATION: clinical-onco-profiler (Global Parameters)
 # ==============================================================================
 
 # --- System Setup ---
 output_root: "results"
 project_name: "base_run"
-input_file: "data/Dati_NSCLC_standardizzati_T1.xlsx"
+input_file: "data/Dati_NSCLC_standardizzati_T0.xlsx"
 input_file_t0: "data/Dati_NSCLC_standardizzati_T0.xlsx"
 input_file_t1: "data/Dati_NSCLC_standardizzati_T1.xlsx"
 

@@ -21,114 +21,94 @@ library(mixOmics)
 #' @param validation_method CV method ("Mfold" or "loo"). 
 #' @param folds Number of folds for Mfold CV (default: 5).
 #' @param n_repeat Number of repetitions for Cross-Validation (default: 50).
-#' @return A list containing the final optimized model, performance metrics, and tuning results.
+#' @return A list containing the final optimized model, performance metrics, tuning results, and explicit validation method.
+#' @export
 run_splsda_model <- function(data_z, metadata, group_col = "Group", n_comp = 2, 
                              validation_method = "Mfold", folds = 5, n_repeat = 50) {
   
-  # Ensure mixOmics is loaded
   requireNamespace("mixOmics", quietly = TRUE)
   
   Y <- as.factor(metadata[[group_col]])
   X <- as.matrix(data_z)
   
-  # Validation: Dimensions
-  if (nrow(X) != length(Y)) stop("Dimension mismatch between Data and Group labels.")
+  if (nrow(X) != length(Y)) stop("Dimension mismatch between Data matrix and Group labels.")
   
-  # Validation: Minimum samples for Mfold
   min_samples_per_class <- min(table(Y))
   if (validation_method == "Mfold" && min_samples_per_class < folds) {
-    message(sprintf("   [sPLS-DA] Warning: Smallest class has %d samples. Adjusting folds to %d.", 
+    message(sprintf("   [sPLS-DA] Warning: Smallest class has %d samples. Adjusting CV folds to %d.", 
                     min_samples_per_class, min_samples_per_class))
     folds <- min_samples_per_class
   }
   
-  # Enforce absolute minimum folds required by mixOmics for Mfold CV
   if (validation_method == "Mfold" && folds < 3) {
     stop("Minimum 3 samples per class required for M-fold cross-validation. Analysis aborted.")
   }
   
-  # 1. Tuning Step: Determine optimal keepX
   message(sprintf("   [sPLS-DA] Tuning optimal features (keepX) for %d components...", n_comp))
   
-  # Define grid of keepX to test: from 5 markers up to all markers
   n_vars <- ncol(X)
-  
   if (n_vars < 5) {
     list_keepX <- c(n_vars)
   } else {
-    # Sequence of 5s
     list_keepX <- seq(5, min(30, n_vars), by = 5)
-    
-    # Always include the full set of variables if small enough, or at least the max cap
     max_val <- min(30, n_vars)
-    if (!max_val %in% list_keepX) {
-      list_keepX <- c(list_keepX, max_val)
-    }
-    
-    # Strictly include n_vars if it's <= 30 and not in list
-    if (n_vars <= 30 && !n_vars %in% list_keepX) {
-      list_keepX <- c(list_keepX, n_vars)
-    }
+    if (!max_val %in% list_keepX) list_keepX <- c(list_keepX, max_val)
+    if (n_vars <= 30 && !n_vars %in% list_keepX) list_keepX <- c(list_keepX, n_vars)
   }
   list_keepX <- sort(unique(list_keepX))
   
-  # Run Tuning (tune.splsda)
   tune_splsda <- mixOmics::tune.splsda(
-    X = X, 
-    Y = Y, 
-    ncomp = n_comp, 
-    test.keepX = list_keepX, 
-    validation = validation_method, 
-    folds = folds, 
-    dist = "max.dist", 
-    progressBar = FALSE,
-    nrepeat = n_repeat  
+    X = X, Y = Y, ncomp = n_comp, test.keepX = list_keepX, 
+    validation = validation_method, folds = folds, 
+    dist = "max.dist", progressBar = FALSE, nrepeat = n_repeat  
   )
   
   choice_keepX <- tune_splsda$choice.keepX
   message(sprintf("      -> Optimal keepX selected: Comp1=%d, Comp2=%d", 
                   choice_keepX[1], choice_keepX[2]))
   
-  # 2. Final Model Fitting
-  message("   [sPLS-DA] Fitting final sparse model with selected parameters...")
+  message("   [sPLS-DA] Fitting final sparse model with optimized parameters...")
   final_model <- mixOmics::splsda(X, Y, ncomp = n_comp, keepX = choice_keepX)
   
-  # 3. Final Performance Evaluation (Error Rate)
-  # We wrap this in tryCatch as perf() can sometimes fail on edge cases
   perf_splsda <- tryCatch({
     mixOmics::perf(final_model, validation = validation_method, folds = folds, 
                    progressBar = FALSE, nrepeat = n_repeat, auc = TRUE) 
   }, error = function(e) {
-    message(paste("      [WARN] Performance evaluation failed:", e$message))
+    message(paste("      [WARN] Performance evaluation encountered an error:", e$message))
     return(NULL) 
   })
   
-  return(list(model = final_model, performance = perf_splsda, tuning = tune_splsda))
+  # Ensure explicit propagation of the validation method to avoid "Unknown" downstream bugs
+  return(list(
+    model = final_model, 
+    performance = perf_splsda, 
+    tuning = tune_splsda,
+    explicit_validation_method = validation_method
+  ))
 }
 
 #' @title Extract PLS-DA Performance Metrics
-#' @description Returns BER (Balanced Error Rate) from the performance object.
+#' @description Returns BER (Balanced Error Rate) from the performance object and safely extracts the validation strategy.
+#' @param pls_result The list returned by run_splsda_model.
+#' @return A dataframe containing Component, Overall_BER, and Validation_Method.
+#' @export
 extract_plsda_performance <- function(pls_result) {
   perf <- pls_result$performance
   n_comp <- pls_result$model$ncomp
   
-  # Handle failure case
+  # Structural fallback if mixOmics performance fails
   if (is.null(perf)) {
     return(data.frame(
       Component = 1:n_comp,
       Overall_BER = NA,
-      Validation_Method = "FAILED"
+      Validation_Method = "EVALUATION_FAILED"
     ))
   }
   
-  # Extract BER safely
   ber_vals <- rep(NA, n_comp)
-  
   tryCatch({
     if (!is.null(perf$error.rate$BER)) {
-      # Check if matrix or vector
       if (is.matrix(perf$error.rate$BER)) {
-        # Usually extract 'max.dist' distance metric for sPLS-DA
         raw_ber <- perf$error.rate$BER[, "max.dist"]
         if(length(raw_ber) >= n_comp) ber_vals <- raw_ber[1:n_comp]
       } else if (is.vector(perf$error.rate$BER)) {
@@ -136,14 +116,11 @@ extract_plsda_performance <- function(pls_result) {
       }
     }
   }, error = function(e) {
-    message("      [WARN] BER extraction encountered an issue. Using NAs.")
+    warning("      [WARN] BER extraction encountered a matrix structure issue. Outputting NAs.")
   })
   
-  # Extract validation method string
-  val_method <- "Unknown"
-  if (!is.null(perf$validation)) {
-    val_method <- as.character(perf$validation)[1]
-  }
+  # Safely extract explicitly propagated validation method
+  val_method <- if(!is.null(pls_result$explicit_validation_method)) pls_result$explicit_validation_method else "Unknown"
   
   df_perf <- data.frame(
     Component = 1:n_comp,
