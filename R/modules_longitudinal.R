@@ -81,8 +81,9 @@ fit_feature_lmm <- function(data_long, feature, group_col = "Group",
     interaction_idx <- grep("Time.*:Group", rownames(coef_table_int))
     
     if (length(interaction_idx) == 1) {
-      result$Estimate_Interaction <- coef_table_int[interaction_idx, "Estimate"]
-      result$Std_Error <- coef_table_int[interaction_idx, "Std. Error"]
+      # Reverse scaling to restore native hybrid logit/log2 effect sizes
+      result$Estimate_Interaction <- coef_table_int[interaction_idx, "Estimate"] * val_sd
+      result$Std_Error <- coef_table_int[interaction_idx, "Std. Error"] * val_sd
       
       t_col <- grep("t value", colnames(coef_table_int))
       if (length(t_col) == 1) result$T_Value_Interaction <- coef_table_int[interaction_idx, t_col]

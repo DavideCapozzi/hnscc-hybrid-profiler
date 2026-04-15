@@ -179,11 +179,11 @@ plot_raw_distribution_merged <- function(data_df, marker_name, colors,
     
     # Layer 3: Median (Solid Black Line)
     stat_summary(fun = median, geom = "errorbar", aes(ymax = after_stat(y), ymin = after_stat(y)),
-                 width = 0.5, size = 0.8, color = "black") +
+                 width = 0.5, linewidth = 0.8, color = "black") +
     
     # Layer 4: Mean (Dashed Red Line)
     stat_summary(fun = mean, geom = "errorbar", aes(ymax = after_stat(y), ymin = after_stat(y)),
-                 width = 0.5, size = 0.8, color = "darkred", linetype = "dashed") +
+                 width = 0.5, linewidth = 0.8, color = "darkred", linetype = "dashed") +
     
     # Colors
     scale_fill_manual(values = colors) +
@@ -1076,8 +1076,6 @@ plot_hub_driver_quadrant <- function(hub_driver_df, y_label = "Degree", title_su
   return(p)
 }
 
-# R/modules_viz.R
-
 #' @title Plot Partial Correlation Density
 #' @description 
 #' Visualizes the distribution of partial correlation values (Shrinkage).
@@ -1115,7 +1113,7 @@ viz_plot_edge_density <- function(pcor_mat, adj_mat = NULL, threshold = 0.15, gr
   # Conditionally add Threshold Lines only if threshold is greater than 0
   if (threshold > 0) {
     p <- p + geom_vline(xintercept = c(-threshold, threshold), 
-                        linetype = "dashed", color = "red", size = 0.8)
+                        linetype = "dashed", color = "red", linewidth = 0.8)
   }
   
   p <- p +
@@ -1171,12 +1169,12 @@ viz_plot_edge_density_overlay <- function(pcor_mat, cor_mat, adj_mat = NULL, thr
   }
   
   p <- ggplot(df_plot, aes(x = Value, fill = Metric, color = Metric)) +
-    geom_density(alpha = 0.4, size = 0.8)
+    geom_density(alpha = 0.4, linewidth = 0.8)
   
   # Conditionally add Threshold Lines
   if (threshold > 0) {
     p <- p + geom_vline(xintercept = c(-threshold, threshold), 
-                        linetype = "dashed", color = "red", size = 0.8)
+                        linetype = "dashed", color = "red", linewidth = 0.8)
   }
   
   p <- p + 
