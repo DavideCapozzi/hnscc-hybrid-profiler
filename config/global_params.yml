@@ -13,6 +13,7 @@ input_file_t1: "data/Dati_NSCLC_standardizzati_T1.xlsx"
 experiments:
   BestResponse_2v3_4:
     is_longitudinal: true
+    run_network: true
     clinical:
       target_column: "Best_response_rate_RC_1_RP_2_SD_3_PD_4"
       responder_label: "RP"
@@ -20,9 +21,10 @@ experiments:
       mapping:
         RP: [2]
         SD_PD: [3, 4]
-        
+
   Comorbidity_1v0:
     is_longitudinal: true
+    run_network: false
     clinical:
       target_column: "comorbidità_No_0_Si_1"
       responder_label: "Comorb_Yes"
@@ -30,9 +32,10 @@ experiments:
       mapping:
         Comorb_Yes: [1]
         Comorb_No:  [0]
-        
+
   Toxicity_1v0:
     is_longitudinal: true
+    run_network: false
     clinical:
       target_column: "tossicità_da_immuno_No_0_Si_1"
       responder_label: "Tox_Yes"
@@ -135,12 +138,32 @@ colors:
     Comorb_Yes: "#B2182B"    # Red
     Comorb_No: "#2E8B57"     # Green
     # Legacy fallbacks
-    Responder: "#2E8B57"     
-    Non_Responder: "#B2182B" 
+    Responder: "#2E8B57"
+    Non_Responder: "#B2182B"
   plsda:
     positive: "#B2182B"
     negative: "#2E8B57"
   heatmap:
-    low: "#2166AC"    
-    mid: "#F7F7F7"    
+    low: "#2166AC"
+    mid: "#F7F7F7"
     high: "#B2182B"
+
+# --- Differential Network Analysis (Step 05) ---
+# Activated per-experiment via run_network: true in the experiments block.
+network:
+  n_boot: 500                  # Bootstrap iterations for baseline stability (lower than OFP given smaller N)
+  n_perm: 1000                 # Permutation iterations for differential testing
+  n_cores: "auto"              # "auto" uses all available cores - 1; or set to a fixed integer
+  threshold_type: "absolute"   # "absolute" or "percentile"
+  edge_threshold: 0.10         # Minimum |pcor| for a valid edge (absolute) or quantile (percentile)
+  min_marginal_cor: 0.10       # Minimum delta Pcor for differential significance
+  min_network_n: 3             # Minimum samples per group to attempt network inference
+  cytoscape_export:            # Baseline network export filters
+    min_stability_freq: 0.90   # Edge must appear in ≥90% of bootstrap iterations
+    min_abs_pcor: 0.10         # Minimum |pcor| for Cytoscape export
+    max_export_edges: 40       # Maximum edges in main Cytoscape file (rest go to remaining/)
+  cytoscape_export_diff:       # Differential network export filters
+    exclude_conserved: false   # Whether to exclude conserved edges from export
+    min_stability_freq_any: 0.90
+    min_diff_score: 0.10
+    max_export_edges: 40

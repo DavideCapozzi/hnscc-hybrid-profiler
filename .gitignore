@@ -4,3 +4,5 @@ results_results-hnscc/
 .Rproj.user
 *.Rproj
 .Rhistory
+.claude
+CLAUDE.md

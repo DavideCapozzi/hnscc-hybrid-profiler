@@ -50,15 +50,18 @@ for (exp_name in names(experiments_list)) {
   exp_cfg <- experiments_list[[exp_name]]
   
   # Inherit boolean flags with safety fallbacks
-  run_standard <- if (!is.null(exp_cfg$run_standard)) as.logical(exp_cfg$run_standard) else TRUE
+  run_standard     <- if (!is.null(exp_cfg$run_standard))    as.logical(exp_cfg$run_standard)    else TRUE
   run_longitudinal <- if (!is.null(exp_cfg$is_longitudinal)) as.logical(exp_cfg$is_longitudinal) else FALSE
+  run_network      <- if (!is.null(exp_cfg$run_network))     as.logical(exp_cfg$run_network)     else FALSE
   
   message(sprintf("\n========================================================"))
   message(sprintf("STARTING EXPERIMENT BLOCK: %s", exp_name))
   message(sprintf("========================================================\n"))
   
   # ============================================================================
-  # PASS 1: STANDARD CROSS-SECTIONAL PIPELINE (01, 02, 03)
+  # PASS 1: STANDARD CROSS-SECTIONAL PIPELINE (01, 02, 03[, 05])
+  # Note: step 05 (network) runs here, before pass 2 step 04 (longitudinal).
+  #       The two steps belong to independent analytical passes and different data modalities.
   # ============================================================================
   if (run_standard) {
     # Isolate configuration state for this pass
@@ -85,13 +88,18 @@ for (exp_name in names(experiments_list)) {
       withCallingHandlers({
         message(">>> RUNNING PHASE 1: DATA PROCESSING <<<")
         source(here("src/01_data_processing.R"), echo = FALSE, local = FALSE)
-        
+
         message("\n>>> RUNNING PHASE 2: VISUALIZATION <<<")
         source(here("src/02_visualization.R"), echo = FALSE, local = FALSE)
-        
+
         message("\n>>> RUNNING PHASE 3: STATISTICAL ANALYSIS & REPORTING <<<")
         source(here("src/03_statistical_analysis.R"), echo = FALSE, local = FALSE)
-        
+
+        if (run_network) {
+          message("\n>>> RUNNING PHASE 5: DIFFERENTIAL NETWORK ANALYSIS <<<")
+          source(here("src/05_network_analysis.R"), echo = FALSE, local = FALSE)
+        }
+
         message(sprintf("\n[SUCCESS] Standard Pipeline completed for: %s", exp_name))
       }, message = function(m) cat(conditionMessage(m), file = log_file_std, append = TRUE, sep = "\n"),
       warning = function(w) cat(paste0("WARNING: ", conditionMessage(w)), file = log_file_std, append = TRUE, sep = "\n"))

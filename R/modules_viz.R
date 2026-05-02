@@ -858,282 +858,6 @@ viz_report_plsda <- function(pls_res, drivers_df, metadata_viz, colors_viz, out_
   }
 }
 
-#' @title Plot Network Graph (ggraph)
-#' @description 
-#' Visualizes the inferred network.
-plot_network_structure <- function(adj_mat, weight_mat, title = "Network", 
-                                   layout_type = "nicely", min_cor = 0) { 
-  
-  # 1. Build Graph Object
-  g <- igraph::graph_from_adjacency_matrix(adj_mat, mode = "undirected", diag = FALSE)
-  
-  # Add attributes
-  E(g)$weight_raw <- NA
-  E(g)$sign <- NA
-  E(g)$weight <- NA 
-  
-  # Get edges
-  el <- igraph::as_data_frame(g, what = "edges")
-  
-  if (nrow(el) > 0) {
-    weights <- numeric(nrow(el))
-    signs   <- character(nrow(el))
-    keep_edge <- logical(nrow(el)) 
-    
-    for(k in 1:nrow(el)) {
-      w <- weight_mat[el[k,1], el[k,2]]
-      
-      if (abs(w) >= min_cor) {
-        keep_edge[k] <- TRUE
-        weights[k] <- abs(w)
-        signs[k]   <- ifelse(w > 0, "Positive", "Negative")
-      } else {
-        keep_edge[k] <- FALSE
-      }
-    }
-    
-    edges_to_remove <- E(g)[!keep_edge]
-    g <- delete_edges(g, edges_to_remove)
-    
-    if (ecount(g) > 0) {
-      E(g)$weight <- weights[keep_edge]
-      E(g)$sign   <- signs[keep_edge]
-    }
-  }
-  
-  V(g)$degree <- igraph::degree(g)
-  
-  # 2. Plotting (Standard ggraph logic)
-  tg <- tidygraph::as_tbl_graph(g)
-  
-  p <- ggraph(tg, layout = layout_type) + 
-    geom_edge_link(aes(width = weight, color = sign), alpha = 0.6) +
-    scale_edge_width(range = c(0.2, 1.5), guide = "none") +
-    scale_edge_color_manual(values = c("Positive" = "#00BFC4", "Negative" = "#F8766D")) +
-    
-    geom_node_point(aes(size = degree), color = "gray20", fill = "white", shape=21) +
-    geom_node_text(aes(label = name), repel = TRUE, size = 3, max.overlaps = 20) +
-    
-    scale_size_continuous(range = c(2, 8)) +
-    labs(title = title, 
-         subtitle = sprintf("Nodes: %d | Edges: %d (Filter: |rho| > %.2f)", 
-                            vcount(g), ecount(g), min_cor),
-         edge_color = "Association") +
-    theme_void() +
-    theme(
-      plot.title = element_text(face="bold", hjust=0.5),
-      plot.subtitle = element_text(hjust=0.5, color="gray50"),
-      legend.position = "bottom"
-    )
-  
-  return(p)
-}
-
-#' @title Plot Differential Edge Overlap (Venn / UpSet)
-#' @description 
-#' Visualizes the intersection of differential edges across scenarios.
-#' Uses ggVennDiagram for <= 3 sets and UpSet plots for > 3 sets.
-#' 
-#' @param edge_list A named list of character vectors (Edge IDs).
-#' @param fill_colors Named vector of colors corresponding to names(edge_list).
-#' @param title Plot title.
-#' @return Returns the plot object.
-viz_plot_differential_overlap <- function(edge_list, fill_colors = NULL, title = "Differential Overlap") {
-  
-  # Clean dependency loading without suppressPackageStartupMessages wrapper
-  requireNamespace("ComplexHeatmap", quietly = TRUE)
-  requireNamespace("grid", quietly = TRUE)
-  requireNamespace("ggVennDiagram", quietly = TRUE)
-  requireNamespace("ggplot2", quietly = TRUE)
-  
-  if (length(edge_list) < 2) {
-    warning("[Viz] Need at least 2 sets for overlap analysis.")
-    return(NULL)
-  }
-  
-  # --- Prepare Colors (Preserved Logic) ---
-  final_colors <- NULL
-  if (!is.null(fill_colors)) {
-    common_names <- intersect(names(edge_list), names(fill_colors))
-    if (length(common_names) > 0) {
-      final_colors <- fill_colors[names(edge_list)]
-      final_colors[is.na(final_colors)] <- "grey80" 
-    }
-  }
-  
-  # Default colors if mapping fails or not provided
-  if (is.null(final_colors)) {
-    defaults <- c("#4682B4", "#CD5C5C", "#E7B800", "#2E8B57", "#9932CC")
-    n_needed <- length(edge_list)
-    final_colors <- rep_len(defaults, n_needed)
-    names(final_colors) <- names(edge_list)
-  }
-  
-  # --- LOGIC: VENN (<= 3 sets) vs UPSET (> 3 sets) ---
-  if (length(edge_list) <= 3) {
-    
-    # Render Venn
-    p <- ggVennDiagram::ggVennDiagram(edge_list, label_alpha = 0, set_color = "black") +
-      
-      # Visualization Overrides
-      ggplot2::scale_fill_gradient(low = "white", high = "white") +
-      ggplot2::theme(legend.position = "none") +
-      ggplot2::labs(title = title) +
-      ggplot2::theme(plot.title = ggplot2::element_text(hjust = 0.5, face = "bold")) +
-      ggplot2::scale_x_continuous(expand = ggplot2::expansion(mult = 0.2))
-    
-    print(p)
-    return(p)
-    
-  } else {
-    
-    message("   [Viz] Drawing UpSet Plot (> 3 sets)...")
-    
-    # Create Combination Matrix
-    m_comb <- ComplexHeatmap::make_comb_mat(edge_list)
-    
-    # Draw UpSet using ComplexHeatmap
-    p <- ComplexHeatmap::draw(
-      ComplexHeatmap::UpSet(
-        m_comb,
-        set_order = names(edge_list),
-        comb_order = order(ComplexHeatmap::comb_size(m_comb), decreasing = TRUE),
-        pt_size = grid::unit(3, "mm"), 
-        lwd = 2,
-        top_annotation = ComplexHeatmap::HeatmapAnnotation(
-          "Intersection" = ComplexHeatmap::anno_barplot(
-            ComplexHeatmap::comb_size(m_comb), 
-            border = FALSE, 
-            gp = grid::gpar(fill = "black"), 
-            height = grid::unit(4, "cm")
-          ), 
-          annotation_name_side = "left"
-        ),
-        column_title = title
-      )
-    )
-    return(p)
-  }
-}
-
-#' @title Plot Hub-Driver Quadrant
-#' @description Scatter plot of PLS-DA Importance vs Network Topology.
-#' @param hub_driver_df Output from integrate_hub_drivers.
-#' @param y_label String. Label for Y axis (e.g., "Degree" or "Betweenness").
-#' @param title_suffix String to append to title.
-#' @return ggplot object.
-plot_hub_driver_quadrant <- function(hub_driver_df, y_label = "Degree", title_suffix = "") {
-  
-  require(ggplot2)
-  require(ggrepel)
-  
-  if (is.null(hub_driver_df) || nrow(hub_driver_df) == 0) return(NULL)
-  
-  # Use the generic column created in integrate_hub_drivers
-  y_col_name <- "Topology_Metric_Value" 
-  
-  # Fallback if the generic column is missing (e.g. using old integration)
-  if (!y_col_name %in% names(hub_driver_df)) {
-    y_col_name <- "Degree"
-  }
-  
-  # Define Quadrant Lines
-  x_mid <- median(hub_driver_df$Importance, na.rm = TRUE)
-  y_mid <- median(hub_driver_df[[y_col_name]], na.rm = TRUE)
-  
-  p <- ggplot(hub_driver_df, aes(x = Importance, y = .data[[y_col_name]], fill = Role)) +
-    # Quadrant Lines
-    geom_vline(xintercept = x_mid, linetype = "dashed", color = "gray60") +
-    geom_hline(yintercept = y_mid, linetype = "dashed", color = "gray60") +
-    
-    # Points
-    geom_point(size = 4, shape = 21, alpha = 0.8) +
-    
-    # Labels
-    geom_text_repel(aes(label = Marker), size = 3.5, max.overlaps = 20) +
-    
-    # Colors
-    scale_fill_manual(values = c(
-      "Master_Regulator" = "#B2182B",      # Red (High/High)
-      "Solo_Driver" = "#D6604D",           # Light Red (High/Low)
-      "Structural_Connector" = "#2166AC",  # Blue (Low/High)
-      "Background" = "gray80"              # Gray (Low/Low)
-    )) +
-    
-    # Scales
-    scale_y_continuous(breaks = scales::pretty_breaks()) +
-    
-    labs(
-      title = paste("Hub-Driver Analysis", title_suffix),
-      subtitle = paste("sPLS-DA Importance vs", y_label),
-      x = "Statistical Importance (sPLS-DA)",
-      y = paste("Topological Centrality (", y_label, ")", sep=""),
-      caption = "Quadrants defined by median values"
-    ) +
-    theme_coda() +
-    theme(legend.position = "bottom")
-  
-  return(p)
-}
-
-#' @title Plot Partial Correlation Density
-#' @description 
-#' Visualizes the distribution of partial correlation values (Shrinkage).
-#' Shows the cutoff threshold relative to the distribution of signal vs noise.
-#' 
-#' @param pcor_mat Numeric matrix of partial correlations.
-#' @param adj_mat Optional. Adjacency matrix (0/1) of stable edges to count actual retained edges.
-#' @param threshold Numeric. The magnitude threshold used for filtering.
-#' @param group_label String. Label for the group (e.g., "Healthy").
-#' @return A ggplot object.
-viz_plot_edge_density <- function(pcor_mat, adj_mat = NULL, threshold = 0.15, group_label = "") {
-  
-  require(ggplot2)
-  
-  # Extract upper triangle values (exclude diagonal and duplicates)
-  vals <- pcor_mat[upper.tri(pcor_mat)]
-  n_total <- length(vals)
-  
-  df_plot <- data.frame(Value = vals)
-  
-  # Dynamic subtitle calculation based on provided adjacency matrix
-  if (!is.null(adj_mat)) {
-    n_stable <- sum(adj_mat[upper.tri(adj_mat)])
-    sub_text <- sprintf("Threshold: |rho| > %.4f | Final Stable Edges: %d", threshold, n_stable)
-  } else {
-    n_kept <- sum(abs(vals) >= threshold)
-    pct_kept <- round((n_kept / n_total) * 100, 1)
-    sub_text <- sprintf("Threshold: |rho| > %.4f (Keeps %.1f%% of raw edges)", threshold, pct_kept)
-  }
-  
-  p <- ggplot(df_plot, aes(x = Value)) +
-    # Density Curve
-    geom_density(fill = "steelblue", alpha = 0.3)
-  
-  # Conditionally add Threshold Lines only if threshold is greater than 0
-  if (threshold > 0) {
-    p <- p + geom_vline(xintercept = c(-threshold, threshold), 
-                        linetype = "dashed", color = "red", linewidth = 0.8)
-  }
-  
-  p <- p +
-    # Annotation
-    labs(
-      title = paste("Edge Weight Distribution:", group_label),
-      subtitle = sub_text,
-      x = "Partial Correlation (Shrinkage)",
-      y = "Density"
-    ) +
-    theme_bw(base_size = 12) +
-    theme(
-      plot.title = element_text(face = "bold", size = 14, hjust = 0.5),
-      plot.subtitle = element_text(size = 11, hjust = 0.5, color = "gray40")
-    ) +
-    xlim(-1, 1) 
-  
-  return(p)
-}
-
 #' @title Plot Partial vs Raw Correlation Density Overlay
 #' @description 
 #' Visualizes the distribution of partial correlation values (Shrinkage) overlaid
@@ -1224,6 +948,227 @@ get_clinical_colors <- function(config) {
     colors_viz[nresp_lbl] <- "#B2182B" # Default Firebrick
     warning(sprintf("[Viz] Missing color configuration for '%s'. Applying default red.", nresp_lbl))
   }
-  
+
   return(colors_viz)
+}
+
+# ==============================================================================
+# NETWORK VISUALIZATION FUNCTIONS
+# ==============================================================================
+
+#' @title Plot Network Structure (ggraph)
+#' @description Force-directed network layout colored by edge sign.
+#' @param adj_mat Adjacency matrix (0/1).
+#' @param weight_mat Partial correlation matrix.
+#' @param title Plot title.
+#' @param layout_type ggraph layout algorithm.
+#' @param min_cor Minimum absolute weight to render edge.
+#' @return ggplot object.
+plot_network_structure <- function(adj_mat, weight_mat, title = "Network",
+                                   layout_type = "nicely", min_cor = 0) {
+
+  requireNamespace("igraph", quietly = TRUE)
+  requireNamespace("tidygraph", quietly = TRUE)
+  requireNamespace("ggraph", quietly = TRUE)
+
+  g <- igraph::graph_from_adjacency_matrix(adj_mat, mode = "undirected", diag = FALSE)
+
+  igraph::E(g)$weight_raw <- NA
+  igraph::E(g)$sign <- NA
+  igraph::E(g)$weight <- NA
+
+  el <- igraph::as_data_frame(g, what = "edges")
+
+  if (nrow(el) > 0) {
+    weights <- numeric(nrow(el))
+    signs   <- character(nrow(el))
+    keep_edge <- logical(nrow(el))
+
+    for (k in 1:nrow(el)) {
+      w <- weight_mat[el[k, 1], el[k, 2]]
+      if (abs(w) >= min_cor) {
+        keep_edge[k] <- TRUE
+        weights[k] <- abs(w)
+        signs[k]   <- ifelse(w > 0, "Positive", "Negative")
+      }
+    }
+
+    g <- igraph::delete_edges(g, igraph::E(g)[!keep_edge])
+
+    if (igraph::ecount(g) > 0) {
+      igraph::E(g)$weight <- weights[keep_edge]
+      igraph::E(g)$sign   <- signs[keep_edge]
+    }
+  }
+
+  igraph::V(g)$degree <- igraph::degree(g)
+  tg <- tidygraph::as_tbl_graph(g)
+
+  p <- ggraph::ggraph(tg, layout = layout_type) +
+    ggraph::geom_edge_link(ggplot2::aes(width = weight, color = sign), alpha = 0.6) +
+    ggraph::scale_edge_width(range = c(0.2, 1.5), guide = "none") +
+    ggraph::scale_edge_color_manual(values = c("Positive" = "#00BFC4", "Negative" = "#F8766D")) +
+    ggraph::geom_node_point(ggplot2::aes(size = degree), color = "gray20", fill = "white", shape = 21) +
+    ggraph::geom_node_text(ggplot2::aes(label = name), repel = TRUE, size = 3, max.overlaps = 20) +
+    ggplot2::scale_size_continuous(range = c(2, 8)) +
+    ggplot2::labs(
+      title = title,
+      subtitle = sprintf("Nodes: %d | Edges: %d (Filter: |rho| > %.2f)",
+                         igraph::vcount(g), igraph::ecount(g), min_cor),
+      edge_color = "Association"
+    ) +
+    ggplot2::theme_void() +
+    ggplot2::theme(
+      plot.title = ggplot2::element_text(face = "bold", hjust = 0.5),
+      plot.subtitle = ggplot2::element_text(hjust = 0.5, color = "gray50"),
+      legend.position = "bottom"
+    )
+
+  return(p)
+}
+
+#' @title Plot Partial Correlation Density
+#' @description Density of edge weights with threshold annotation.
+#' @param pcor_mat Numeric partial correlation matrix.
+#' @param adj_mat Optional adjacency matrix (0/1) to report stable edge count.
+#' @param threshold Magnitude threshold used for filtering.
+#' @param group_label Label for the group.
+#' @return ggplot object.
+viz_plot_edge_density <- function(pcor_mat, adj_mat = NULL, threshold = 0.15, group_label = "") {
+
+  vals <- pcor_mat[upper.tri(pcor_mat)]
+  n_total <- length(vals)
+  df_plot <- data.frame(Value = vals)
+
+  if (!is.null(adj_mat)) {
+    n_stable <- sum(adj_mat[upper.tri(adj_mat)])
+    sub_text <- sprintf("Threshold: |rho| > %.4f | Final Stable Edges: %d", threshold, n_stable)
+  } else {
+    n_kept <- sum(abs(vals) >= threshold)
+    pct_kept <- round((n_kept / n_total) * 100, 1)
+    sub_text <- sprintf("Threshold: |rho| > %.4f (Keeps %.1f%% of raw edges)", threshold, pct_kept)
+  }
+
+  p <- ggplot2::ggplot(df_plot, ggplot2::aes(x = Value)) +
+    ggplot2::geom_density(fill = "steelblue", alpha = 0.3)
+
+  if (threshold > 0) {
+    p <- p + ggplot2::geom_vline(xintercept = c(-threshold, threshold),
+                                 linetype = "dashed", color = "red", linewidth = 0.8)
+  }
+
+  p <- p +
+    ggplot2::labs(
+      title = paste("Edge Weight Distribution:", group_label),
+      subtitle = sub_text,
+      x = "Partial Correlation (Shrinkage)",
+      y = "Density"
+    ) +
+    ggplot2::theme_bw(base_size = 12) +
+    ggplot2::theme(
+      plot.title = ggplot2::element_text(face = "bold", size = 14, hjust = 0.5),
+      plot.subtitle = ggplot2::element_text(size = 11, hjust = 0.5, color = "gray40")
+    ) +
+    ggplot2::xlim(-1, 1)
+
+  return(p)
+}
+
+#' @title Plot Hub-Driver Quadrant
+#' @description sPLS-DA Importance vs Network Topology scatter with role classification.
+#' @param hub_driver_df Output from integrate_hub_drivers().
+#' @param y_label Label for Y axis ("Degree" or "Betweenness").
+#' @param title_suffix String to append to plot title.
+#' @return ggplot object.
+plot_hub_driver_quadrant <- function(hub_driver_df, y_label = "Degree", title_suffix = "") {
+
+  if (is.null(hub_driver_df) || nrow(hub_driver_df) == 0) return(NULL)
+
+  y_col_name <- if ("Topology_Metric_Value" %in% names(hub_driver_df)) "Topology_Metric_Value" else "Degree"
+
+  x_mid <- median(hub_driver_df$Importance, na.rm = TRUE)
+  y_mid <- median(hub_driver_df[[y_col_name]], na.rm = TRUE)
+
+  p <- ggplot2::ggplot(hub_driver_df, ggplot2::aes(x = Importance, y = .data[[y_col_name]], fill = Role)) +
+    ggplot2::geom_vline(xintercept = x_mid, linetype = "dashed", color = "gray60") +
+    ggplot2::geom_hline(yintercept = y_mid, linetype = "dashed", color = "gray60") +
+    ggplot2::geom_point(size = 4, shape = 21, alpha = 0.8) +
+    ggrepel::geom_text_repel(ggplot2::aes(label = Marker), size = 3.5, max.overlaps = 20) +
+    ggplot2::scale_fill_manual(values = c(
+      "Master_Regulator"    = "#B2182B",
+      "Solo_Driver"         = "#D6604D",
+      "Structural_Connector" = "#2166AC",
+      "Background"          = "gray80"
+    )) +
+    ggplot2::scale_y_continuous(breaks = scales::pretty_breaks()) +
+    ggplot2::labs(
+      title    = paste("Hub-Driver Analysis", title_suffix),
+      subtitle = paste("sPLS-DA Importance vs", y_label),
+      x        = "Statistical Importance (sPLS-DA)",
+      y        = paste0("Topological Centrality (", y_label, ")"),
+      caption  = "Quadrants defined by median values"
+    ) +
+    theme_coda() +
+    ggplot2::theme(legend.position = "bottom")
+
+  return(p)
+}
+
+#' @title Plot Differential Edge Overlap (Venn / UpSet)
+#' @description Intersection of differential edges across multiple experiments.
+#' @param edge_list Named list of character vectors (Edge IDs per experiment).
+#' @param fill_colors Named color vector matching names(edge_list).
+#' @param title Plot title.
+viz_plot_differential_overlap <- function(edge_list, fill_colors = NULL, title = "Differential Overlap") {
+
+  requireNamespace("ComplexHeatmap", quietly = TRUE)
+  requireNamespace("grid", quietly = TRUE)
+  requireNamespace("ggVennDiagram", quietly = TRUE)
+
+  if (length(edge_list) < 2) {
+    warning("[Viz] Need at least 2 sets for overlap analysis.")
+    return(NULL)
+  }
+
+  final_colors <- NULL
+  if (!is.null(fill_colors)) {
+    common_names <- intersect(names(edge_list), names(fill_colors))
+    if (length(common_names) > 0) {
+      final_colors <- fill_colors[names(edge_list)]
+      final_colors[is.na(final_colors)] <- "grey80"
+    }
+  }
+  if (is.null(final_colors)) {
+    defaults <- c("#4682B4", "#CD5C5C", "#E7B800", "#2E8B57", "#9932CC")
+    final_colors <- setNames(rep_len(defaults, length(edge_list)), names(edge_list))
+  }
+
+  if (length(edge_list) <= 3) {
+    p <- ggVennDiagram::ggVennDiagram(edge_list, label_alpha = 0, set_color = "black") +
+      ggplot2::scale_fill_gradient(low = "white", high = "white") +
+      ggplot2::theme(legend.position = "none") +
+      ggplot2::labs(title = title) +
+      ggplot2::theme(plot.title = ggplot2::element_text(hjust = 0.5, face = "bold")) +
+      ggplot2::scale_x_continuous(expand = ggplot2::expansion(mult = 0.2))
+    print(p)
+    return(invisible(p))
+  } else {
+    m_comb <- ComplexHeatmap::make_comb_mat(edge_list)
+    ComplexHeatmap::draw(
+      ComplexHeatmap::UpSet(
+        m_comb,
+        set_order = names(edge_list),
+        comb_order = order(ComplexHeatmap::comb_size(m_comb), decreasing = TRUE),
+        pt_size = grid::unit(3, "mm"), lwd = 2,
+        top_annotation = ComplexHeatmap::HeatmapAnnotation(
+          "Intersection" = ComplexHeatmap::anno_barplot(
+            ComplexHeatmap::comb_size(m_comb), border = FALSE,
+            gp = grid::gpar(fill = "black"), height = grid::unit(4, "cm")
+          ),
+          annotation_name_side = "left"
+        ),
+        column_title = title
+      )
+    )
+  }
 }
