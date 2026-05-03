@@ -100,11 +100,94 @@ aggregate_boot_results <- function(boot_list, alpha = 0.10) {
   return(list(adj = adj_mat, weights = mean_mat, stability = stab_mat, n_boot_valid = n_boots))
 }
 
+#' @title Select Network Features via sPLS-DA Loadings
+#' @description
+#' Reduces the marker set passed to network inference using sPLS-DA variable
+#' importance scores produced by Step 03. Markers with absolute loading above
+#' \code{min_abs_loading} in at least one sPLS-DA component are retained, plus
+#' any markers listed in \code{always_include}.
+#'
+#' This two-stage design (discriminant pre-selection → partial correlation network)
+#' keeps p/n < 1 for reliable James-Stein shrinkage estimation, and constrains the
+#' network to co-regulatory patterns among markers already shown to be relevant to
+#' the clinical stratification — a requirement for interpretability in a publication.
+#'
+#' @param available_markers Character vector of markers present in the data matrix.
+#' @param json_path Path to the Machine_Metrics JSON produced by Step 03.
+#' @param min_abs_loading Non-negative scalar. Minimum absolute sPLS-DA loading to
+#'   retain a marker. Default 0 keeps any marker selected in at least one component.
+#' @param always_include Character vector of markers to force-include regardless of
+#'   their sPLS-DA importance (e.g. structural backbone markers).
+#' @param min_features Minimum number of markers required after filtering. Falls back
+#'   to the full panel with a warning if the selection is smaller.
+#' @return Named list: \code{selected} (character), \code{n_splsda} (int),
+#'   \code{n_forced} (int).
+select_network_features <- function(available_markers,
+                                    json_path,
+                                    min_abs_loading = 0,
+                                    always_include  = character(0),
+                                    min_features    = 8) {
+  fallback <- list(selected = available_markers, n_splsda = NA_integer_, n_forced = 0L)
+
+  if (!requireNamespace("jsonlite", quietly = TRUE)) {
+    warning("[FeatureSelection] jsonlite unavailable — using full panel.")
+    return(fallback)
+  }
+  if (!file.exists(json_path)) {
+    warning(sprintf("[FeatureSelection] JSON not found at '%s' — using full panel.", json_path))
+    return(fallback)
+  }
+
+  metrics <- tryCatch(
+    jsonlite::read_json(json_path, simplifyVector = TRUE),
+    error = function(e) {
+      warning(sprintf("[FeatureSelection] Could not parse JSON (%s) — using full panel.", e$message))
+      NULL
+    }
+  )
+  if (is.null(metrics) || is.null(metrics$top_drivers)) {
+    warning("[FeatureSelection] 'top_drivers' absent from JSON — using full panel.")
+    return(fallback)
+  }
+
+  drivers <- as.data.frame(metrics$top_drivers)
+  if (!all(c("Marker", "Importance") %in% names(drivers))) {
+    warning("[FeatureSelection] Required columns missing from top_drivers — using full panel.")
+    return(fallback)
+  }
+
+  splsda_sel <- intersect(
+    drivers$Marker[drivers$Importance > min_abs_loading],
+    available_markers
+  )
+  forced   <- intersect(always_include, available_markers)
+  selected <- union(splsda_sel, forced)
+
+  if (length(selected) < min_features) {
+    warning(sprintf(
+      "[FeatureSelection] %d features pass filter (min=%d) — reverting to full panel.",
+      length(selected), min_features
+    ))
+    return(list(selected = available_markers,
+                n_splsda = length(splsda_sel),
+                n_forced = length(forced)))
+  }
+
+  message(sprintf(
+    "[FeatureSelection] %d features selected: %d sPLS-DA (|loading|>%.2f) + %d forced (%d unique additions).",
+    length(selected), length(splsda_sel), min_abs_loading,
+    length(forced), length(setdiff(forced, splsda_sel))
+  ))
+  message(sprintf("[FeatureSelection] Panel: %s", paste(sort(selected), collapse = ", ")))
+
+  list(selected = selected, n_splsda = length(splsda_sel), n_forced = length(forced))
+}
+
 #' @title Compute Universal Baseline Network
-#' @description 
-#' Calculates Pcor, Bootstrap Stability, and generates the finalized adjacency matrix 
+#' @description
+#' Calculates Pcor, Bootstrap Stability, and generates the finalized adjacency matrix
 #' for a single macro-group. This operation is executed only once per group.
-#' 
+#'
 #' @param mat Numeric matrix (Samples x Features).
 #' @param label String label for the group.
 #' @param n_boot Number of bootstrap iterations.

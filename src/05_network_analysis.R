@@ -102,6 +102,45 @@ pad_matrix <- function(small_mat, full_names, default_val = 0) {
   return(big_mat)
 }
 
+# 3b. sPLS-DA-Guided Feature Selection
+# ------------------------------------------------------------------------------
+# When enabled, restricts network inference to sPLS-DA-selected markers plus
+# any user-defined backbone features. This keeps p/n < 1 for both groups,
+# which is required for stable James-Stein shrinkage estimates, and focuses
+# the network on the markers already shown to contribute to clinical stratification.
+feat_sel_conf <- config$network$feature_selection
+
+if (!is.null(feat_sel_conf) && isTRUE(feat_sel_conf$enabled)) {
+  json_path_fs <- file.path(config$output_root, "03_statistical_analysis",
+                             sprintf("Machine_Metrics_%s.json", config$project_name))
+  min_loading <- if (!is.null(feat_sel_conf$min_abs_loading)) feat_sel_conf$min_abs_loading else 0
+  always_inc  <- if (!is.null(feat_sel_conf$always_include))  feat_sel_conf$always_include  else character(0)
+  min_feats   <- if (!is.null(feat_sel_conf$min_features))    feat_sel_conf$min_features    else 8L
+
+  message("\n--- FEATURE SELECTION: sPLS-DA GUIDED ---")
+  fs_result <- select_network_features(
+    available_markers = valid_feats,
+    json_path         = json_path_fs,
+    min_abs_loading   = min_loading,
+    always_include    = always_inc,
+    min_features      = min_feats
+  )
+
+  valid_feats <- fs_result$selected
+  mat_ctrl    <- mat_ctrl[, valid_feats, drop = FALSE]
+  mat_case    <- mat_case[, valid_feats, drop = FALSE]
+
+  message(sprintf(
+    "[Network] Feature-selected input: %d features | p/n ctrl=%.2f | p/n case=%.2f",
+    length(valid_feats),
+    length(valid_feats) / nrow(mat_ctrl),
+    length(valid_feats) / nrow(mat_case)
+  ))
+} else {
+  message(sprintf("[Network] Feature selection disabled — running on full panel (%d features).",
+                  length(valid_feats)))
+}
+
 # 4. Universal Baselines
 # ------------------------------------------------------------------------------
 message("\n--- PHASE 1: COMPUTING UNIVERSAL BASELINES ---")

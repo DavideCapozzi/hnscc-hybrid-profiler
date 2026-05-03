@@ -151,19 +151,33 @@ colors:
 # --- Differential Network Analysis (Step 05) ---
 # Activated per-experiment via run_network: true in the experiments block.
 network:
-  n_boot: 500                  # Bootstrap iterations for baseline stability (lower than OFP given smaller N)
-  n_perm: 1000                 # Permutation iterations for differential testing
+  n_boot: 1000                 # Bootstrap iterations for baseline stability
+  n_perm: 2000                 # Permutation iterations for differential testing (p-value floor 0.0005)
   n_cores: "auto"              # "auto" uses all available cores - 1; or set to a fixed integer
   threshold_type: "absolute"   # "absolute" or "percentile"
-  edge_threshold: 0.10         # Minimum |pcor| for a valid edge (absolute) or quantile (percentile)
+  edge_threshold: 0.075        # Minimum |pcor| for a valid edge — lower threshold recovers weak inverted edges
   min_marginal_cor: 0.10       # Minimum delta Pcor for differential significance
   min_network_n: 3             # Minimum samples per group to attempt network inference
   cytoscape_export:            # Baseline network export filters
     min_stability_freq: 0.90   # Edge must appear in ≥90% of bootstrap iterations
-    min_abs_pcor: 0.10         # Minimum |pcor| for Cytoscape export
+    min_abs_pcor: 0.075        # Minimum |pcor| for Cytoscape export (aligned with edge_threshold)
     max_export_edges: 40       # Maximum edges in main Cytoscape file (rest go to remaining/)
   cytoscape_export_diff:       # Differential network export filters
     exclude_conserved: false   # Whether to exclude conserved edges from export
     min_stability_freq_any: 0.90
     min_diff_score: 0.10
     max_export_edges: 40
+  feature_selection:           # sPLS-DA-guided panel reduction before network inference
+    enabled: true
+    method: "splsda_loadings"  # Retain markers with |loading| > min_abs_loading in Step 03
+    min_abs_loading: 0.0       # 0 = any marker selected by sPLS-DA in at least one component
+    min_features: 8            # Safety floor; reverts to full panel if selection is smaller
+    always_include:            # Structural backbone: parent lineage + memory phenotypes
+      - "CD3tot"               # Total T cells — anchor for lineage interpretation
+      - "CD4tot"
+      - "CD8tot"
+      - "CM"                   # Central memory
+      - "EFF"                  # Effector
+      - "EM"                   # Effector memory
+      - "NAIVE"
+      - "KI657EMRA"            # Terminally differentiated EMRA (note: field name typo in source data)
