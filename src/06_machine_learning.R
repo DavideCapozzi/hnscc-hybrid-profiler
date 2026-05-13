@@ -220,6 +220,38 @@ if (lmm_robust$n_robust == 0) {
                   paste(sprintf("%s BalAcc=%.3f", uni_thresh_df$Marker,
                                 uni_thresh_df$Balanced_Accuracy), collapse = " | ")))
 
+  # 10b. Clinical Benchmark Comparison (optional, config-driven)
+  # Compares the primary model against a clinical standard biomarker (e.g. PD-L1)
+  # read from config$clinical$benchmark_column in the raw input Excel.
+  # The DeLong test is run on the available-cases subset only; it may be underpowered
+  # and should be reported as descriptive when p > 0.05.
+  # ------------------------------------------------------------------------------
+  benchmark_result <- NULL
+  bench_col   <- config$clinical$benchmark_column
+  bench_label <- if (!is.null(config$clinical$benchmark_label)) {
+    config$clinical$benchmark_label
+  } else bench_col
+
+  if (!is.null(bench_col) && !is.null(config$input_file_t0)) {
+    message(sprintf("\n[ML] Clinical benchmark: '%s'...", bench_label))
+    primary_res <- if (primary_method == "SVM-RBF") res_svm else res_glmnet
+    benchmark_result <- tryCatch(
+      run_clinical_benchmark(
+        DATA            = DATA,
+        primary_probs   = primary_res$predicted_probs,
+        y_primary       = primary_res$y_true,
+        positive_label  = res_glmnet$positive_label,
+        input_file      = config$input_file_t0,
+        benchmark_col   = bench_col,
+        benchmark_label = bench_label
+      ),
+      error = function(e) {
+        warning(sprintf("[ML] Clinical benchmark failed: %s", e$message))
+        NULL
+      }
+    )
+  }
+
   # 11. Export Machine-Readable JSON
   # ------------------------------------------------------------------------------
   machine_output <- list(
@@ -251,7 +283,28 @@ if (lmm_robust$n_robust == 0) {
       n_perm      = n_perm
     ),
     univariate_auc            = uni_auc_df,
-    univariate_loo_threshold  = uni_thresh_df
+    univariate_loo_threshold  = uni_thresh_df,
+    clinical_benchmark        = if (!is.null(benchmark_result)) {
+      list(
+        label                 = benchmark_result$label,
+        column                = benchmark_result$column,
+        n_valid               = benchmark_result$n_valid,
+        n_na                  = benchmark_result$n_na,
+        auc                   = benchmark_result$auc,
+        auc_ci                = as.list(benchmark_result$auc_ci),
+        primary_auc_on_subset = benchmark_result$primary_auc_on_subset,
+        delong_p              = benchmark_result$delong_p,
+        note                  = sprintf(
+          "Primary model AUC=%.3f vs %s AUC=%.3f on %d/%d cases with non-NA values (DeLong p=%.4f). Test may be underpowered.",
+          benchmark_result$primary_auc_on_subset,
+          benchmark_result$label,
+          benchmark_result$auc,
+          benchmark_result$n_valid,
+          nrow(X),
+          if (is.na(benchmark_result$delong_p)) 0 else benchmark_result$delong_p
+        )
+      )
+    } else NULL
   )
 
   json_path <- file.path(out_dir, sprintf("Machine_Metrics_ML_%s.json", config$project_name))
@@ -327,6 +380,37 @@ if (lmm_robust$n_robust == 0) {
   openxlsx::addWorksheet(wb, "Univariate_LOO_Threshold")
   openxlsx::writeData(wb, "Univariate_LOO_Threshold", uni_thresh_df)
 
+  if (!is.null(benchmark_result)) {
+    df_bench_report <- data.frame(
+      Metric = c(
+        "Benchmark biomarker", "Source column",
+        "N valid (non-NA)", "N missing (NA)",
+        "Benchmark AUC", "Benchmark AUC CI Lower", "Benchmark AUC CI Upper",
+        "Primary model AUC (same subset)", "DeLong p-value (primary vs benchmark)",
+        "Methodological note"
+      ),
+      Value = c(
+        benchmark_result$label,
+        benchmark_result$column,
+        as.character(benchmark_result$n_valid),
+        as.character(benchmark_result$n_na),
+        as.character(round(benchmark_result$auc,                   4)),
+        as.character(round(benchmark_result$auc_ci[1],             4)),
+        as.character(round(benchmark_result$auc_ci[3],             4)),
+        as.character(round(benchmark_result$primary_auc_on_subset, 4)),
+        if (is.na(benchmark_result$delong_p)) "NA" else
+          as.character(round(benchmark_result$delong_p, 5)),
+        sprintf(
+          "DeLong test run on available-cases subset (n=%d). Benchmark is univariate; primary model is multivariate nested-LOOCV. AUC difference is descriptive when p > 0.05.",
+          benchmark_result$n_valid
+        )
+      ),
+      stringsAsFactors = FALSE
+    )
+    openxlsx::addWorksheet(wb, "Clinical_Benchmark")
+    openxlsx::writeData(wb, "Clinical_Benchmark", df_bench_report)
+  }
+
   excel_path <- file.path(out_dir, sprintf("ML_Classification_Report_%s.xlsx", config$project_name))
   openxlsx::saveWorkbook(wb, excel_path, overwrite = TRUE)
   message(sprintf("   [Output] Classification report saved: %s", basename(excel_path)))
@@ -341,12 +425,13 @@ if (lmm_robust$n_robust == 0) {
   pdf(file.path(out_dir, sprintf("ROC_ML_%s.pdf", config$project_name)), width = 8, height = 7)
   tryCatch({
     p_roc <- plot_ml_roc(
-      results_list = results_list_plot,
-      colors_viz   = colors_viz,
-      title        = sprintf("Nested-LOOCV ROC: %s vs %s\n(%s)",
-                             config$clinical$responder_label,
-                             config$clinical$non_responder_label,
-                             config$project_name)
+      results_list   = results_list_plot,
+      colors_viz     = colors_viz,
+      title          = sprintf("Nested-LOOCV ROC: %s vs %s\n(%s)",
+                               config$clinical$responder_label,
+                               config$clinical$non_responder_label,
+                               config$project_name),
+      benchmark_list = if (!is.null(benchmark_result)) list(benchmark_result) else NULL
     )
     if (!is.null(p_roc)) print(p_roc)
   }, error = function(e) warning(paste("ROC plot failed:", e$message)))
@@ -382,10 +467,19 @@ if (lmm_robust$n_robust == 0) {
   }, error = function(e) warning(paste("Univariate ROC plot failed:", e$message)))
   dev.off()
 
+  bench_line <- if (!is.null(benchmark_result)) {
+    sprintf(" | %s AUC=%.3f (n=%d, DeLong p=%.4f)",
+            benchmark_result$label,
+            benchmark_result$auc,
+            benchmark_result$n_valid,
+            if (is.na(benchmark_result$delong_p)) 0 else benchmark_result$delong_p)
+  } else ""
+
   message(sprintf(
-    "\n[ML] Summary — %s | Primary: %s | AUC(EN)=%.3f | AUC(SVM)=%.3f | Perm p(SVM)=%.4f",
+    "\n[ML] Summary — %s | Primary: %s | AUC(EN)=%.3f | AUC(SVM)=%.3f | Perm p(SVM)=%.4f%s",
     config$project_name, primary_method,
-    metrics_glmnet$auc, metrics_svm$auc, perm_svm$p_value
+    metrics_glmnet$auc, metrics_svm$auc, perm_svm$p_value,
+    bench_line
   ))
 }
 

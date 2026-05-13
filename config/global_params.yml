@@ -22,6 +22,8 @@ experiments:
       mapping:
         RP: [2]
         SD_PD: [3, 4]
+      benchmark_column: "PD_L1"
+      benchmark_label: "PD-L1 expression (%)"
 
   Comorbidity_1v0:
     is_longitudinal: true
@@ -158,7 +160,7 @@ machine_learning:
   loo_threshold: 0.05          # Max LOO p-value cutoff for LMM feature gate
   n_perm: 2000                 # Permutations for empirical AUC p-value (floor = 1/n_perm)
   collinearity_threshold: 0.85 # Drop one of any marker pair with |r| > threshold (0.85 = automatic; set to 1 to disable)
-  include_interactions: true   # Add network-guided pairwise interaction terms
+  include_interactions: false  # Disabled: SVM-RBF captures non-linear interactions via kernel; explicit terms add collinear noise
 
   glmnet:
     alpha_grid: [0.0, 0.5, 1.0] # Tuned in inner CV: Ridge, Elastic Net, LASSO

@@ -482,39 +482,41 @@ compute_classification_metrics <- function(y_true, y_pred_prob, positive_label) 
 
 #' @title Plot Nested-LOOCV ROC Curves
 #' @description
-#' Overlays ROC curves for multiple methods on a single ggplot with AUC
-#' annotated in the legend. Designed to compare Elastic Net and SVM-RBF outputs.
+#' Overlays ROC curves for multiple methods on a single ggplot with AUC annotated
+#' in the legend. ML model curves are drawn as solid lines; optional clinical
+#' benchmark curves are drawn as dashed lines at a distinct colour to signal their
+#' different nature (univariate biomarker, potentially on a smaller subset).
 #'
 #' @param results_list Named list of ML result objects (each with predicted_probs,
 #'   y_true, positive_label, method).
 #' @param colors_viz Named character vector of clinical group colours (optional).
 #' @param title String. Plot title.
+#' @param benchmark_list Optional list of benchmark result objects from
+#'   run_clinical_benchmark(). Each element must contain predicted_probs, y_true,
+#'   positive_label, label, n_valid, and direction fields.
 #' @return A ggplot object, or NULL on failure.
 #' @export
 plot_ml_roc <- function(results_list,
-                        colors_viz = NULL,
-                        title      = "Nested-LOOCV ROC Curves") {
+                        colors_viz     = NULL,
+                        title          = "Nested-LOOCV ROC Curves",
+                        benchmark_list = NULL) {
   if (!requireNamespace("pROC", quietly = TRUE)) return(NULL)
 
-  method_colors <- c(
-    "Elastic Net" = "#2171B5",
-    "SVM-RBF"     = "#CB181D"
-  )
+  method_colors    <- c("Elastic Net" = "#2171B5", "SVM-RBF" = "#CB181D")
+  benchmark_colors <- c("#6A3D9A", "#FF7F00", "#33A02C")
 
+  # ── ML model ROC data (solid curves) ────────────────────────────────────────
   roc_data <- purrr::map_dfr(names(results_list), function(nm) {
     res   <- results_list[[nm]]
     y_bin <- as.integer(res$y_true == res$positive_label)
-
     tryCatch({
       roc_obj <- pROC::roc(response = y_bin, predictor = res$predicted_probs,
                            direction = "<", quiet = TRUE)
       auc_val <- round(as.numeric(pROC::auc(roc_obj)), 3)
-
       data.frame(
         FPR    = 1 - roc_obj$specificities,
         TPR    = roc_obj$sensitivities,
         Method = sprintf("%s\n(AUC = %.3f)", nm, auc_val),
-        Key    = nm,
         stringsAsFactors = FALSE
       )
     }, error = function(e) data.frame())
@@ -522,21 +524,74 @@ plot_ml_roc <- function(results_list,
 
   if (nrow(roc_data) == 0) return(NULL)
 
-  p <- ggplot2::ggplot(roc_data, ggplot2::aes(x = FPR, y = TPR, color = Method)) +
-    ggplot2::geom_line(linewidth = 1.2, na.rm = TRUE) +
-    ggplot2::geom_abline(slope = 1, intercept = 0, linetype = "dashed",
-                         color = "grey55", linewidth = 0.6) +
+  # ── Benchmark ROC data (dashed curves, possibly on a subset) ────────────────
+  bench_data <- data.frame()
+  if (!is.null(benchmark_list)) {
+    bench_data <- purrr::map_dfr(seq_along(benchmark_list), function(bi) {
+      br    <- benchmark_list[[bi]]
+      y_bin <- as.integer(br$y_true == br$positive_label)
+      x_vec <- as.numeric(br$predicted_probs)
+      dir   <- if (!is.null(br$direction)) br$direction else "<"
+      tryCatch({
+        roc_obj <- pROC::roc(response = y_bin, predictor = x_vec,
+                             direction = dir, quiet = TRUE)
+        auc_val <- round(as.numeric(pROC::auc(roc_obj)), 3)
+        data.frame(
+          FPR    = 1 - roc_obj$specificities,
+          TPR    = roc_obj$sensitivities,
+          Method = sprintf("%s\n(AUC = %.3f, n=%d)", br$label, auc_val, br$n_valid),
+          stringsAsFactors = FALSE
+        )
+      }, error = function(e) data.frame())
+    })
+  }
+
+  # ── Colour map ───────────────────────────────────────────────────────────────
+  # ML methods: keyed by short name prefix; benchmarks: cycle through palette.
+  color_map <- stats::setNames(
+    sapply(unique(roc_data$Method), function(m) {
+      key <- sub("\n.*$", "", m)
+      if (key %in% names(method_colors)) method_colors[[key]] else "#636363"
+    }),
+    unique(roc_data$Method)
+  )
+  if (nrow(bench_data) > 0) {
+    bench_methods <- unique(bench_data$Method)
+    color_map[bench_methods] <- benchmark_colors[
+      ((seq_along(bench_methods) - 1L) %% length(benchmark_colors)) + 1L
+    ]
+  }
+
+  # ── Build plot: two separate geom_line layers preserve linetype clarity ──────
+  p <- ggplot2::ggplot(mapping = ggplot2::aes(x = FPR, y = TPR, color = Method)) +
+    ggplot2::geom_line(data = roc_data, linewidth = 1.2, na.rm = TRUE)
+
+  if (nrow(bench_data) > 0) {
+    p <- p + ggplot2::geom_line(data = bench_data, linewidth = 1.0,
+                                linetype = "dashed", na.rm = TRUE)
+  }
+
+  p <- p +
+    ggplot2::geom_abline(slope = 1, intercept = 0, linetype = "dotted",
+                         color = "grey55", linewidth = 0.5) +
+    ggplot2::scale_color_manual(values = color_map, name = NULL) +
     ggplot2::scale_x_continuous(limits = c(0, 1), expand = c(0.01, 0),
                                  breaks = seq(0, 1, 0.2)) +
     ggplot2::scale_y_continuous(limits = c(0, 1), expand = c(0.01, 0),
                                  breaks = seq(0, 1, 0.2)) +
-    ggplot2::labs(title = title, x = "1 - Specificity (FPR)",
-                  y = "Sensitivity (TPR)", color = NULL) +
+    ggplot2::labs(
+      title    = title,
+      x        = "1 - Specificity (FPR)",
+      y        = "Sensitivity (TPR)",
+      color    = NULL,
+      caption  = if (nrow(bench_data) > 0) "Dashed: clinical benchmark (univariate, available-cases subset)" else NULL
+    ) +
     ggplot2::theme_bw(base_size = 12) +
     ggplot2::theme(
       legend.position  = "bottom",
       legend.direction = "vertical",
-      plot.title       = ggplot2::element_text(size = 11, face = "bold")
+      plot.title       = ggplot2::element_text(size = 11, face = "bold"),
+      plot.caption     = ggplot2::element_text(size = 8, color = "grey45")
     )
 
   p
@@ -767,6 +822,126 @@ run_univariate_loo_threshold <- function(X_main, y, positive_label, seed = 2026)
   })
 
   results
+}
+
+
+#' @title Run Clinical Benchmark Comparison
+#' @description
+#' Loads a clinical biomarker column from the raw input Excel, merges by Patient_ID,
+#' computes its univariate AUC on available cases, and performs a DeLong test against
+#' the primary model's out-of-fold predicted probabilities. Returns NULL gracefully when
+#' the column is absent, has too many NAs, or the input file cannot be read.
+#'
+#' @param DATA Named list. Processed data object from Step 01 (for Patient_ID and Group).
+#' @param primary_probs Numeric vector. Out-of-fold predicted probabilities from the primary model.
+#' @param y_primary Factor. True class labels (same order as primary_probs).
+#' @param positive_label String. The positive class label.
+#' @param input_file String. Path to the raw input Excel (config$input_file_t0).
+#' @param benchmark_col String. Column name for the clinical biomarker.
+#' @param benchmark_label String. Human-readable label for reporting.
+#' @param min_n Integer. Minimum valid cases required to proceed (default 10).
+#' @return A named list: label, auc, auc_ci, n_valid, n_na, delong_p, predicted_probs,
+#'   y_true, positive_label. Returns NULL on failure.
+#' @export
+run_clinical_benchmark <- function(DATA, primary_probs, y_primary, positive_label,
+                                   input_file, benchmark_col, benchmark_label = NULL,
+                                   min_n = 10L) {
+  if (!requireNamespace("pROC",    quietly = TRUE)) return(NULL)
+  if (!requireNamespace("readxl",  quietly = TRUE)) return(NULL)
+  if (!requireNamespace("dplyr",   quietly = TRUE)) return(NULL)
+
+  if (is.null(benchmark_label)) benchmark_label <- benchmark_col
+
+  if (!file.exists(input_file)) {
+    message(sprintf("   [ML Benchmark] Input file not found: %s", input_file))
+    return(NULL)
+  }
+
+  df_raw <- tryCatch(
+    readxl::read_excel(input_file, sheet = 1),
+    error = function(e) { message(sprintf("   [ML Benchmark] Cannot read %s: %s", input_file, e$message)); NULL }
+  )
+  if (is.null(df_raw)) return(NULL)
+
+  if (!benchmark_col %in% names(df_raw)) {
+    message(sprintf("   [ML Benchmark] Column '%s' not found in %s", benchmark_col, basename(input_file)))
+    return(NULL)
+  }
+
+  # Merge: raw file → processed metadata by Patient_ID
+  df_bench <- df_raw %>%
+    dplyr::select(Patient_ID, dplyr::all_of(benchmark_col)) %>%
+    dplyr::mutate(Patient_ID = as.character(Patient_ID))
+
+  df_meta <- DATA$metadata %>%
+    dplyr::mutate(Patient_ID = as.character(Patient_ID)) %>%
+    dplyr::left_join(df_bench, by = "Patient_ID")
+
+  bench_vals <- as.numeric(df_meta[[benchmark_col]])
+  n_na    <- sum(is.na(bench_vals))
+  n_valid <- sum(!is.na(bench_vals))
+
+  message(sprintf("   [ML Benchmark] '%s': %d valid / %d total (NA=%d)",
+                  benchmark_label, n_valid, nrow(df_meta), n_na))
+
+  if (n_valid < min_n) {
+    message(sprintf("   [ML Benchmark] Insufficient valid cases (%d < %d). Skipping.", n_valid, min_n))
+    return(NULL)
+  }
+
+  valid_mask <- !is.na(bench_vals)
+  y_bench    <- y_primary[valid_mask]
+  y_bin      <- as.integer(y_bench == positive_label)
+  x_bench    <- bench_vals[valid_mask]
+
+  # Univariate AUC (direction auto-selected for maximum AUC)
+  roc_fwd <- tryCatch(pROC::roc(y_bin, x_bench, direction = "<", quiet = TRUE), error = function(e) NULL)
+  roc_rev <- tryCatch(pROC::roc(y_bin, x_bench, direction = ">", quiet = TRUE), error = function(e) NULL)
+  auc_fwd <- if (!is.null(roc_fwd)) as.numeric(pROC::auc(roc_fwd)) else 0
+  auc_rev <- if (!is.null(roc_rev)) as.numeric(pROC::auc(roc_rev)) else 0
+  roc_best  <- if (auc_fwd >= auc_rev) roc_fwd else roc_rev
+  bench_auc <- max(auc_fwd, auc_rev)
+
+  ci_bench <- tryCatch(
+    as.numeric(pROC::ci.auc(roc_best, method = "delong")),
+    error = function(e) c(NA_real_, bench_auc, NA_real_)
+  )
+
+  # DeLong test: primary model (subset) vs benchmark
+  probs_subset <- primary_probs[valid_mask]
+  y_bin_sub    <- as.integer(y_primary[valid_mask] == positive_label)
+  roc_primary  <- tryCatch(
+    pROC::roc(y_bin_sub, probs_subset, direction = "<", quiet = TRUE),
+    error = function(e) NULL
+  )
+  primary_auc_subset <- if (!is.null(roc_primary)) as.numeric(pROC::auc(roc_primary)) else NA_real_
+
+  delong_result <- if (!is.null(roc_primary) && !is.null(roc_best)) {
+    tryCatch(pROC::roc.test(roc_primary, roc_best, method = "delong"), error = function(e) NULL)
+  } else NULL
+
+  delong_p <- if (!is.null(delong_result)) round(delong_result$p.value, 5) else NA_real_
+
+  message(sprintf(
+    "   [ML Benchmark] %s: AUC=%.3f [%.3f-%.3f] | Primary(n=%d)=%.3f | DeLong p=%.4f",
+    benchmark_label, bench_auc, ci_bench[1], ci_bench[3],
+    n_valid, primary_auc_subset, if (is.na(delong_p)) 0 else delong_p
+  ))
+
+  list(
+    label                 = benchmark_label,
+    column                = benchmark_col,
+    auc                   = bench_auc,
+    auc_ci                = ci_bench,
+    n_valid               = n_valid,
+    n_na                  = n_na,
+    primary_auc_on_subset = primary_auc_subset,
+    delong_p              = delong_p,
+    direction             = if (auc_fwd >= auc_rev) "<" else ">",
+    predicted_probs       = x_bench,
+    y_true                = y_bench,
+    positive_label        = positive_label
+  )
 }
 
 
