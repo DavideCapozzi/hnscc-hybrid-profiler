@@ -157,6 +157,7 @@ machine_learning:
   fdr_threshold: 0.05          # FDR cutoff for LMM feature gate
   loo_threshold: 0.05          # Max LOO p-value cutoff for LMM feature gate
   n_perm: 2000                 # Permutations for empirical AUC p-value (floor = 1/n_perm)
+  collinearity_threshold: 0.85 # Drop one of any marker pair with |r| > threshold (0.85 = automatic; set to 1 to disable)
   include_interactions: true   # Add network-guided pairwise interaction terms
 
   glmnet:

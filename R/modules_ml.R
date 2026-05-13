@@ -78,18 +78,75 @@ load_lmm_robust_features <- function(lmm_json_path,
 }
 
 
+#' @title Filter Collinear Features
+#' @description
+#' Iteratively removes near-collinear markers from a feature matrix. At each
+#' step, the pair with the highest absolute Pearson correlation is identified;
+#' the marker with the higher MEAN absolute correlation to all other remaining
+#' markers is dropped (the more globally redundant one). Repeats until no pair
+#' exceeds the threshold. This correctly handles chains of collinearity without
+#' relying on univariate AUC, which can be noisy in small samples.
+#'
+#' @param X_main Numeric matrix. Main-effect feature matrix (samples x features).
+#' @param cor_threshold Numeric. Drop one of a pair when |r| exceeds this value (default 0.85).
+#' @return A named list: X (filtered matrix), kept (character), dropped (character).
+#' @export
+filter_collinear_features <- function(X_main, cor_threshold = 0.85) {
+  markers <- colnames(X_main)
+  dropped <- character(0)
+
+  repeat {
+    if (length(markers) <= 1) break
+
+    cm <- abs(cor(X_main[, markers, drop = FALSE], method = "pearson"))
+    diag(cm) <- 0
+    max_r <- max(cm, na.rm = TRUE)
+    if (!is.finite(max_r) || max_r < cor_threshold) break
+
+    # Identify the most correlated pair
+    idx    <- which(cm == max_r, arr.ind = TRUE)[1, ]
+    m1     <- markers[idx[1]]
+    m2     <- markers[idx[2]]
+    others <- markers[!markers %in% c(m1, m2)]
+
+    if (length(others) == 0) {
+      # Only two markers left and they're collinear — keep the one with lower
+      # correlation to itself (identical: keep m1 by convention, drop m2)
+      dropped <- c(dropped, m2)
+      markers <- m1
+      break
+    }
+
+    # Drop whichever has higher mean |r| to all other markers (more redundant)
+    mean_r_m1 <- mean(abs(cm[m1, others]), na.rm = TRUE)
+    mean_r_m2 <- mean(abs(cm[m2, others]), na.rm = TRUE)
+    to_drop   <- if (mean_r_m1 >= mean_r_m2) m1 else m2
+
+    dropped <- c(dropped, to_drop)
+    markers <- markers[markers != to_drop]
+  }
+
+  list(X = X_main[, markers, drop = FALSE], kept = markers, dropped = dropped)
+}
+
+
 #' @title Build ML Feature Matrix
 #' @description
 #' Extracts the Z-scored feature columns for the LOO-robust markers from the
-#' Step 01 processed data object. Optionally appends pairwise interaction terms
-#' (explicit products) guided by the network co-activation topology.
+#' Step 01 processed data object. Applies a collinearity filter before adding
+#' interaction terms to prevent near-duplicate features from degrading the
+#' classifier. Optionally appends pairwise interaction terms guided by the
+#' network co-activation topology.
 #'
 #' @param DATA Named list. Processed data object from Step 01 (standard mode).
 #' @param robust_markers Character vector. Markers selected by the LMM LOO gate.
 #' @param include_interactions Logical. Append all pairwise products (default TRUE).
+#' @param cor_threshold Numeric. Collinearity filter threshold (default 0.85).
+#'   Set to 1 to disable filtering.
 #' @return A named list: X (matrix), y (factor), feature_names (character), n_main (integer).
 #' @export
-build_ml_matrix <- function(DATA, robust_markers, include_interactions = TRUE) {
+build_ml_matrix <- function(DATA, robust_markers, include_interactions = TRUE,
+                            cor_threshold = 0.85) {
   # Resolve marker availability against the transformed Z-score matrix
   all_z_cols  <- DATA$hybrid_markers
   available   <- intersect(robust_markers, all_z_cols)
@@ -102,7 +159,23 @@ build_ml_matrix <- function(DATA, robust_markers, include_interactions = TRUE) {
   if (length(available) == 0) stop("[ML][FATAL] No robust markers present in data matrix.")
 
   X <- as.matrix(DATA$hybrid_data_z[, available, drop = FALSE])
+  mode(X) <- "numeric"
   rownames(X) <- make.unique(as.character(DATA$metadata$Patient_ID))
+
+  # Collinearity filter: drop the more redundant of any near-duplicate pair
+  if (length(available) >= 2 && is.finite(cor_threshold) && cor_threshold < 1) {
+    filt <- filter_collinear_features(X, cor_threshold = cor_threshold)
+    if (length(filt$dropped) > 0) {
+      message(sprintf(
+        "   [ML] Collinearity filter (|r| > %.2f): removed %s (kept %s)",
+        cor_threshold,
+        paste(filt$dropped, collapse = ", "),
+        paste(filt$kept,    collapse = ", ")
+      ))
+    }
+    X         <- filt$X
+    available <- filt$kept
+  }
 
   n_main <- length(available)
 
@@ -110,7 +183,7 @@ build_ml_matrix <- function(DATA, robust_markers, include_interactions = TRUE) {
     combos <- utils::combn(available, 2, simplify = FALSE)
     for (pair in combos) {
       col_name        <- paste(pair[1], pair[2], sep = "_x_")
-      X               <- cbind(X, X[, pair[1]] * X[, pair[2]])
+      X               <- cbind(X, as.numeric(X[, pair[1]]) * as.numeric(X[, pair[2]]))
       colnames(X)[ncol(X)] <- col_name
     }
     message(sprintf("   [ML] Feature matrix: %d main effects + %d interaction term(s) = %d total",

@@ -66,7 +66,13 @@ if (lmm_robust$n_robust == 0) {
     isTRUE(ml_cfg$include_interactions)
   } else TRUE
 
-  ml_matrix <- build_ml_matrix(DATA, lmm_robust$markers, include_interactions = include_interactions)
+  cor_threshold <- if (!is.null(ml_cfg$collinearity_threshold)) {
+    as.numeric(ml_cfg$collinearity_threshold)
+  } else 0.85
+
+  ml_matrix <- build_ml_matrix(DATA, lmm_robust$markers,
+                                include_interactions = include_interactions,
+                                cor_threshold        = cor_threshold)
   X <- ml_matrix$X
   y <- ml_matrix$y
 
