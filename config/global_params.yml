@@ -5,6 +5,7 @@
 # --- System Setup ---
 output_root: "results"
 project_name: "base_run"
+run_machine_learning: true
 input_file: "data/Dati_NSCLC_standardizzati_T0.xlsx"
 input_file_t0: "data/Dati_NSCLC_standardizzati_T0.xlsx"
 input_file_t1: "data/Dati_NSCLC_standardizzati_T1.xlsx"
@@ -147,6 +148,29 @@ colors:
     low: "#2166AC"
     mid: "#F7F7F7"
     high: "#B2182B"
+
+# --- Machine Learning Classification (Step 06) ---
+# Global switch applied to all experiments. Step 06 auto-detects whether each
+# experiment has LOO-robust features (FDR + LOO gate from Step 04) and degrades
+# gracefully when none are found — no per-experiment flag needed.
+machine_learning:
+  fdr_threshold: 0.05          # FDR cutoff for LMM feature gate
+  loo_threshold: 0.05          # Max LOO p-value cutoff for LMM feature gate
+  n_perm: 2000                 # Permutations for empirical AUC p-value (floor = 1/n_perm)
+  include_interactions: true   # Add network-guided pairwise interaction terms
+
+  glmnet:
+    alpha_grid: [0.0, 0.5, 1.0] # Tuned in inner CV: Ridge, Elastic Net, LASSO
+    n_lambda: 100
+    inner_folds: 5
+
+  svm:
+    C_grid: [0.01, 0.1, 1, 10, 100]
+    gamma_grid: [0.01, 0.1, 1, 10]
+    inner_folds: 5
+
+  output:
+    top_n_features: 10
 
 # --- Differential Network Analysis (Step 05) ---
 # Activated per-experiment via run_network: true in the experiments block.

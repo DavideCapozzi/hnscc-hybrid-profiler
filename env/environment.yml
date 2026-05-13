@@ -1,4 +1,4 @@
-name: clinical-traits-profiler
+name: clinical-onco-profiler
 
 channels:
   - conda-forge
@@ -90,10 +90,15 @@ dependencies:
   - r-writexl
 
   # === STATISTICS ===
-  - r-pwr              
+  - r-pwr
   - bioconductor-multtest
   - r-vegan
-  - r-lmertest  
+  - r-lmertest
+
+  # === MACHINE LEARNING CLASSIFICATION ===
+  - r-glmnet           # Elastic net logistic regression (Friedman et al.)
+  - r-e1071            # SVM via libsvm (Vapnik kernel methods)
+  - r-proc             # ROC curves and AUC — conda-forge name for pROC (Robin et al.)
 
   # === BIOCONDUCTOR CORE ===
   - bioconductor-biobase

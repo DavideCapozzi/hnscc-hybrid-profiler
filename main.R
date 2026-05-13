@@ -50,9 +50,11 @@ for (exp_name in names(experiments_list)) {
   exp_cfg <- experiments_list[[exp_name]]
   
   # Inherit boolean flags with safety fallbacks
-  run_standard     <- if (!is.null(exp_cfg$run_standard))    as.logical(exp_cfg$run_standard)    else TRUE
-  run_longitudinal <- if (!is.null(exp_cfg$is_longitudinal)) as.logical(exp_cfg$is_longitudinal) else FALSE
-  run_network      <- if (!is.null(exp_cfg$run_network))     as.logical(exp_cfg$run_network)     else FALSE
+  run_standard        <- if (!is.null(exp_cfg$run_standard))         as.logical(exp_cfg$run_standard)         else TRUE
+  run_longitudinal    <- if (!is.null(exp_cfg$is_longitudinal))      as.logical(exp_cfg$is_longitudinal)      else FALSE
+  run_network         <- if (!is.null(exp_cfg$run_network))          as.logical(exp_cfg$run_network)          else FALSE
+  # ML is a global flag (base_config), not per-experiment — Step 06 self-gates on LOO-robust feature availability
+  run_machine_learning <- if (!is.null(base_config$run_machine_learning)) as.logical(base_config$run_machine_learning) else FALSE
   
   message(sprintf("\n========================================================"))
   message(sprintf("STARTING EXPERIMENT BLOCK: %s", exp_name))
@@ -151,6 +153,40 @@ for (exp_name in names(experiments_list)) {
     }, error = function(e) {
       err_msg <- paste0("\n[FATAL ERROR] Longitudinal Pipeline stopped: ", e$message)
       cat(err_msg, file = log_file_long, append = TRUE, sep = "\n")
+      message(err_msg)
+    })
+  }
+  # ============================================================================
+  # PASS 3: MACHINE LEARNING PIPELINE (06)
+  # Reads LOO-robust features from Step 04 JSON. Degrades gracefully when
+  # no features survive the FDR + LOO gate — no per-experiment flag needed.
+  # ============================================================================
+  if (run_machine_learning) {
+    config <- base_config
+    config$project_name <- exp_name
+    config$run_mode     <- "machine_learning"
+
+    if (!is.null(exp_cfg$clinical)) config$clinical <- exp_cfg$clinical
+
+    config$output_root <- file.path(base_config$output_root, config$project_name)
+    if (!dir.exists(config$output_root)) dir.create(config$output_root, recursive = TRUE)
+
+    log_file_ml <- file.path(config$output_root, paste0("log_machine_learning_", format(Sys.time(), "%Y%m%d_%H%M%S"), ".txt"))
+
+    message(sprintf("\n--- [PASS 3] MACHINE LEARNING PIPELINE: %s ---", config$project_name))
+    cat(sprintf("=== MACHINE LEARNING PIPELINE STARTED: %s ===\n", Sys.time()), file = log_file_ml)
+
+    tryCatch({
+      withCallingHandlers({
+        message(">>> RUNNING PHASE 6: MACHINE LEARNING CLASSIFICATION <<<")
+        source(here("src/06_machine_learning.R"), echo = FALSE, local = FALSE)
+
+        message(sprintf("\n[SUCCESS] Machine Learning Pipeline completed for: %s", exp_name))
+      }, message = function(m) cat(conditionMessage(m), file = log_file_ml, append = TRUE, sep = "\n"),
+      warning = function(w) cat(paste0("WARNING: ", conditionMessage(w)), file = log_file_ml, append = TRUE, sep = "\n"))
+    }, error = function(e) {
+      err_msg <- paste0("\n[FATAL ERROR] Machine Learning Pipeline stopped: ", e$message)
+      cat(err_msg, file = log_file_ml, append = TRUE, sep = "\n")
       message(err_msg)
     })
   }
