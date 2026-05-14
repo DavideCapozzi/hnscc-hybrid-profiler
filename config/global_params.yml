@@ -6,6 +6,7 @@
 output_root: "results"
 project_name: "base_run"
 run_machine_learning: true
+run_nested_loocv_validation: true
 input_file: "data/Dati_NSCLC_standardizzati_T0.xlsx"
 input_file_t0: "data/Dati_NSCLC_standardizzati_T0.xlsx"
 input_file_t1: "data/Dati_NSCLC_standardizzati_T1.xlsx"
@@ -24,6 +25,9 @@ experiments:
         SD_PD: [3, 4]
       benchmark_column: "PD_L1"
       benchmark_label: "PD-L1 expression (%)"
+      sensitivity_covariates:
+        - "PD_L1"
+        - "PS_prima_immuno"
 
   Comorbidity_1v0:
     is_longitudinal: true

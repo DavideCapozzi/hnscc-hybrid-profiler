@@ -1008,3 +1008,212 @@ plot_univariate_roc <- function(X_main, y, positive_label, univariate_df,
 
   p
 }
+
+
+# ==============================================================================
+# NESTED LOO VALIDATION — fully-nested LMM feature selection inside outer fold
+# ==============================================================================
+
+#' @title LMM Gate Selection for a Single LOO Fold
+#' @description
+#' Fits per-marker LMMs on a longitudinal training subset (n-1 patients), applies
+#' BH correction, and runs LOO sensitivity on FDR-passing markers to produce the
+#' same two-stage gate used by Step 04, but trained on fold-local data only.
+#'
+#' @param df_lng_train Data.frame. Longitudinal data (meta + markers) for n-1 patients.
+#' @param markers Character vector. All candidate marker names.
+#' @param fdr_thr Numeric. FDR threshold (default 0.05).
+#' @param loo_thr Numeric. Max LOO p-value threshold (default 0.05).
+#' @return Character vector of markers that pass both gates. May be empty.
+select_gate_for_fold <- function(df_lng_train, markers, fdr_thr = 0.05, loo_thr = 0.05) {
+  results <- lapply(markers, function(mk) {
+    vals   <- as.numeric(df_lng_train[[mk]])
+    val_sd <- sd(vals, na.rm = TRUE)
+    if (is.na(val_sd) || val_sd == 0) val_sd <- 1
+    df_m <- data.frame(
+      Value = vals / val_sd,
+      Time  = as.factor(df_lng_train$Timepoint),
+      Group = as.factor(df_lng_train$Group),
+      ID    = as.factor(df_lng_train$Patient_ID)
+    )
+    df_m <- df_m[complete.cases(df_m), ]
+    if (nrow(df_m) < 10 || length(unique(df_m$Group)) < 2)
+      return(data.frame(Marker = mk, P = NA_real_))
+    tryCatch({
+      mod <- suppressMessages(suppressWarnings(
+        lmerTest::lmer(Value ~ Time * Group + (1 | ID), data = df_m,
+                       REML = TRUE, control = lme4::lmerControl(calc.derivs = FALSE))
+      ))
+      ct  <- summary(mod)$coefficients
+      idx <- grep("Time.*:Group", rownames(ct))
+      if (length(idx) != 1) return(data.frame(Marker = mk, P = NA_real_))
+      p_col <- grep("Pr\\(>\\|t\\|\\)", colnames(ct))
+      data.frame(Marker = mk, P = ct[idx, p_col])
+    }, error = function(e) data.frame(Marker = mk, P = NA_real_))
+  })
+
+  res_df     <- do.call(rbind, results)
+  res_df$FDR <- p.adjust(res_df$P, method = "BH")
+  fdr_pass   <- res_df$Marker[!is.na(res_df$FDR) & res_df$FDR < fdr_thr]
+  if (length(fdr_pass) == 0) return(character(0))
+
+  loo_pass <- character(0)
+  for (mk in fdr_pass) {
+    unique_ids <- unique(df_lng_train$Patient_ID)
+    max_p <- 0
+    for (drop_id in unique_ids) {
+      sub2  <- df_lng_train[df_lng_train$Patient_ID != drop_id, ]
+      vals2 <- as.numeric(sub2[[mk]])
+      sd2   <- sd(vals2, na.rm = TRUE)
+      if (is.na(sd2) || sd2 == 0) sd2 <- 1
+      df_m2 <- data.frame(
+        Value = vals2 / sd2,
+        Time  = as.factor(sub2$Timepoint),
+        Group = as.factor(sub2$Group),
+        ID    = as.factor(sub2$Patient_ID)
+      )
+      df_m2 <- df_m2[complete.cases(df_m2), ]
+      if (nrow(df_m2) < 8 || length(unique(df_m2$Group)) < 2) next
+      p_loo <- tryCatch({
+        mod2 <- suppressMessages(suppressWarnings(
+          lmerTest::lmer(Value ~ Time * Group + (1 | ID), data = df_m2,
+                         REML = TRUE, control = lme4::lmerControl(calc.derivs = FALSE))
+        ))
+        ct2  <- summary(mod2)$coefficients
+        idx2 <- grep("Time.*:Group", rownames(ct2))
+        if (length(idx2) != 1) NA_real_
+        else ct2[idx2, grep("Pr\\(>\\|t\\|\\)", colnames(ct2))]
+      }, error = function(e) NA_real_)
+      if (!is.na(p_loo) && p_loo > max_p) max_p <- p_loo
+    }
+    if (max_p < loo_thr) loo_pass <- c(loo_pass, mk)
+  }
+  loo_pass
+}
+
+
+#' @title Fully-Nested LOO Validation for SVM-RBF Classifier
+#' @description
+#' For each outer LOO fold, LMM-based feature selection (FDR + LOO sensitivity +
+#' collinearity filter) is re-run on the n-1 training patients using the
+#' longitudinal dataset, then an SVM-RBF is trained on T0 cross-sectional data
+#' and tested on the held-out patient. This provides an unbiased AUC estimate
+#' and quantifies the stability of the feature gate across folds.
+#'
+#' @param DATA_T0         Named list. Step 01 standard (T0) processed data object.
+#' @param DATA_LONG       Named list. Step 01 longitudinal processed data object.
+#' @param fdr_thr         Numeric. FDR threshold for LMM gate (default 0.05).
+#' @param loo_thr         Numeric. LOO p-value threshold for LMM gate (default 0.05).
+#' @param cor_threshold   Numeric. Collinearity filter threshold (default 0.85).
+#' @param C_grid          Numeric vector. SVM cost values for inner CV.
+#' @param gamma_grid      Numeric vector. SVM gamma values for inner CV.
+#' @param inner_folds     Integer. Number of inner CV folds (default 5).
+#' @param seed            Integer. Random seed for reproducibility.
+#' @return Named list: metrics, gate_stability (data.frame), n_empty_folds, predicted_probs.
+#' @export
+run_nested_loocv_svm_validated <- function(DATA_T0, DATA_LONG,
+                                           fdr_thr        = 0.05,
+                                           loo_thr        = 0.05,
+                                           cor_threshold  = 0.85,
+                                           C_grid         = c(0.01, 0.1, 1, 10, 100),
+                                           gamma_grid     = c(0.01, 0.1, 1, 10),
+                                           inner_folds    = 5L,
+                                           seed           = 2026L,
+                                           positive_label = NULL) {
+
+  META_COLS   <- c("Patient_ID", "Sample_ID", "Timepoint", "Group")
+  std_markers <- setdiff(colnames(DATA_T0$hybrid_data_z),   META_COLS)
+  lng_markers <- setdiff(colnames(DATA_LONG$hybrid_data_z), META_COLS)
+  shared_mkrs <- intersect(std_markers, lng_markers)
+
+  data_z_t0 <- as.matrix(DATA_T0$hybrid_data_z[, shared_mkrs, drop = FALSE])
+  meta_t0   <- DATA_T0$metadata
+
+  # Preserve existing factor level ordering (non-responder first, responder second)
+  grp_fac   <- if (is.factor(meta_t0$Group)) meta_t0$Group
+               else factor(meta_t0$Group)
+  grp_lvls  <- levels(grp_fac)
+  pos_label <- if (!is.null(positive_label)) positive_label else grp_lvls[2]
+  neg_label <- setdiff(grp_lvls, pos_label)[1]
+
+  pid_t0 <- meta_t0$Patient_ID
+  n_t0   <- nrow(meta_t0)
+
+  data_z_lng <- as.data.frame(DATA_LONG$hybrid_data_z[, shared_mkrs, drop = FALSE])
+  meta_lng   <- DATA_LONG$metadata
+
+  probs         <- numeric(n_t0)
+  gate_per_fold <- vector("list", n_t0)
+
+  for (i in seq_len(n_t0)) {
+    pid_test  <- pid_t0[i]
+    idx_train <- setdiff(seq_len(n_t0), i)
+    X_train   <- data_z_t0[idx_train, , drop = FALSE]
+    # Use group labels directly so SVM probability columns match pos_label / neg_label
+    y_train   <- as.character(grp_fac[idx_train])
+    X_test    <- data_z_t0[i, , drop = FALSE]
+
+    lng_mask     <- meta_lng$Patient_ID != pid_test
+    df_lng_train <- cbind(as.data.frame(meta_lng[lng_mask, ]),
+                          as.data.frame(data_z_lng[lng_mask, , drop = FALSE]))
+
+    gate <- select_gate_for_fold(df_lng_train, shared_mkrs, fdr_thr, loo_thr)
+
+    if (length(gate) > 1) {
+      filt <- filter_collinear_features(X_train[, gate, drop = FALSE], cor_threshold)
+      gate <- filt$kept
+    }
+    gate_per_fold[[i]] <- gate
+
+    if (length(gate) == 0) { probs[i] <- 0.5; next }
+
+    X_tr   <- X_train[, gate, drop = FALSE]
+    X_te   <- X_test[,  gate, drop = FALSE]
+    mu     <- colMeans(X_tr, na.rm = TRUE)
+    sds    <- apply(X_tr, 2, sd, na.rm = TRUE); sds[sds == 0] <- 1
+    X_tr_s <- scale(X_tr, center = mu, scale = sds)
+    X_te_s <- scale(X_te, center = mu, scale = sds)
+
+    y_tr_fac   <- factor(y_train, levels = grp_lvls)
+    safe_folds <- max(2L, min(inner_folds, min(table(y_train))))
+    set.seed(seed + i)
+    tune_res <- tryCatch(
+      e1071::tune(e1071::svm, train.x = X_tr_s, train.y = y_tr_fac,
+                  kernel = "radial", probability = TRUE,
+                  ranges      = list(cost = C_grid, gamma = gamma_grid),
+                  tunecontrol = e1071::tune.control(sampling = "cross", cross = safe_folds)),
+      error = function(e) NULL
+    )
+    if (is.null(tune_res)) { probs[i] <- 0.5; next }
+
+    fit <- tryCatch(
+      e1071::svm(X_tr_s, y_tr_fac, kernel = "radial",
+                 cost  = tune_res$best.parameters$cost,
+                 gamma = tune_res$best.parameters$gamma,
+                 probability = TRUE),
+      error = function(e) NULL
+    )
+    if (is.null(fit)) { probs[i] <- 0.5; next }
+
+    pred_obj <- predict(fit, X_te_s, probability = TRUE)
+    pm       <- attr(pred_obj, "probabilities")
+    probs[i] <- if (pos_label %in% colnames(pm)) pm[, pos_label] else 0.5
+  }
+
+  metrics <- compute_classification_metrics(grp_fac, probs, pos_label)
+
+  all_gates <- unlist(gate_per_fold)
+  freq_tab  <- sort(table(all_gates), decreasing = TRUE)
+  gate_stab <- data.frame(
+    Marker         = names(freq_tab),
+    Folds_Selected = as.integer(freq_tab),
+    Total_Folds    = n_t0,
+    Pct            = round(100 * as.integer(freq_tab) / n_t0, 1),
+    stringsAsFactors = FALSE
+  )
+
+  list(metrics        = metrics,
+       gate_stability  = gate_stab,
+       n_empty_folds   = sum(sapply(gate_per_fold, length) == 0L),
+       predicted_probs = probs)
+}

@@ -252,7 +252,57 @@ if (lmm_robust$n_robust == 0) {
     )
   }
 
-  # 11. Export Machine-Readable JSON
+  # 11. Nested LOO Validation (optional, config-driven)
+  # ------------------------------------------------------------------------------
+  nested_validation <- NULL
+  run_nested <- isTRUE(config$run_nested_loocv_validation)
+
+  if (run_nested) {
+    message("\n[ML] Running fully-nested LOO validation (LMM gate inside outer fold)...")
+    lmm_json_for_nested <- file.path(config$output_root, "04_longitudinal_analysis",
+                                     sprintf("Machine_Metrics_LMM_%s.json", config$project_name))
+
+    DATA_LONG_nested <- tryCatch({
+      rds_long <- file.path(config$output_root, "01_data_processing",
+                            sprintf("data_processed_%s_longitudinal.rds", config$project_name))
+      if (file.exists(rds_long)) readRDS(rds_long) else NULL
+    }, error = function(e) NULL)
+
+    if (!is.null(DATA_LONG_nested)) {
+      nested_validation <- tryCatch(
+        run_nested_loocv_svm_validated(
+          DATA_T0       = DATA,
+          DATA_LONG     = DATA_LONG_nested,
+          fdr_thr       = fdr_thresh,
+          loo_thr       = loo_thresh,
+          cor_threshold = cor_threshold,
+          C_grid        = C_grid,
+          gamma_grid    = gamma_grid,
+          inner_folds   = inner_k_sv,
+          seed          = config$stats$seed
+        ),
+        error = function(e) {
+          warning(sprintf("[ML] Nested LOO validation failed: %s", e$message))
+          NULL
+        }
+      )
+
+      if (!is.null(nested_validation)) {
+        m <- nested_validation$metrics
+        message(sprintf(
+          "   [ML] Nested LOO validation complete — AUC=%.4f [%.3f–%.3f]  BalAcc=%.4f",
+          m$auc, m$auc_ci[1], m$auc_ci[3], m$balanced_accuracy
+        ))
+        message(sprintf("   [ML] Gate stability: %d / %d folds with non-empty gate",
+                        nrow(DATA$metadata) - nested_validation$n_empty_folds,
+                        nrow(DATA$metadata)))
+      }
+    } else {
+      warning("[ML] Nested LOO validation skipped: longitudinal data not found.")
+    }
+  }
+
+  # 12. Export Machine-Readable JSON
   # ------------------------------------------------------------------------------
   machine_output <- list(
     project_name         = config$project_name,
@@ -275,7 +325,14 @@ if (lmm_robust$n_robust == 0) {
     scaling_note = paste(
       "Z-scores computed globally in Step 01 (deterministic centering, not a learned parameter).",
       "Minor approximation: test-fold statistics are not excluded from scaling.",
-      "Feature gate derived from longitudinal data (Step 04) — disjoint from classifier training data."
+      "Feature gate derived from longitudinal data (Step 04) — disjoint from classifier training data.",
+      if (!is.null(nested_validation))
+        sprintf("Leakage empirically quantified: fully-nested LOO validation yielded AUC=%.3f [%.3f-%.3f] with %d%% gate stability for primary marker (see nested_loocv_validation).",
+                nested_validation$metrics$auc,
+                nested_validation$metrics$auc_ci[1],
+                nested_validation$metrics$auc_ci[3],
+                if (nrow(nested_validation$gate_stability) > 0) nested_validation$gate_stability$Pct[1] else 0L)
+      else ""
     ),
     permutation_test = list(
       elastic_net = perm_glmnet,
@@ -302,6 +359,27 @@ if (lmm_robust$n_robust == 0) {
           benchmark_result$n_valid,
           nrow(X),
           if (is.na(benchmark_result$delong_p)) 0 else benchmark_result$delong_p
+        )
+      )
+    } else NULL,
+    nested_loocv_validation = if (!is.null(nested_validation)) {
+      nv_m <- nested_validation$metrics
+      list(
+        method            = "SVM-RBF Fully-Nested LOO (LMM gate re-selected inside each outer fold)",
+        auc               = nv_m$auc,
+        auc_ci            = as.list(nv_m$auc_ci),
+        balanced_accuracy = nv_m$balanced_accuracy,
+        ber               = nv_m$ber,
+        sensitivity       = nv_m$sensitivity,
+        specificity       = nv_m$specificity,
+        gate_stability    = nested_validation$gate_stability,
+        n_empty_folds     = nested_validation$n_empty_folds,
+        note              = sprintf(
+          "Fully-nested validation: LMM feature selection repeated within each outer LOO fold on n-1 patients. AUC=%.3f vs fixed-gate AUC=%.3f (delta=%.3f). Primary marker gate stability: %d%%.",
+          nv_m$auc,
+          if (primary_method == "SVM-RBF") metrics_svm$auc else metrics_glmnet$auc,
+          nv_m$auc - (if (primary_method == "SVM-RBF") metrics_svm$auc else metrics_glmnet$auc),
+          if (nrow(nested_validation$gate_stability) > 0) nested_validation$gate_stability$Pct[1] else 0L
         )
       )
     } else NULL
@@ -409,6 +487,32 @@ if (lmm_robust$n_robust == 0) {
     )
     openxlsx::addWorksheet(wb, "Clinical_Benchmark")
     openxlsx::writeData(wb, "Clinical_Benchmark", df_bench_report)
+  }
+
+  if (!is.null(nested_validation)) {
+    nv_m      <- nested_validation$metrics
+    df_nested <- data.frame(
+      Metric = c("Method", "AUC", "AUC CI Lower", "AUC CI Upper",
+                 "Balanced Accuracy", "BER", "Sensitivity", "Specificity",
+                 "Empty Gate Folds", "Total Folds",
+                 "Note"),
+      Value  = c(
+        "SVM-RBF Fully-Nested LOO",
+        round(nv_m$auc, 4), round(nv_m$auc_ci[1], 4), round(nv_m$auc_ci[3], 4),
+        round(nv_m$balanced_accuracy, 4), round(nv_m$ber, 4),
+        round(nv_m$sensitivity, 4), round(nv_m$specificity, 4),
+        nested_validation$n_empty_folds, nrow(DATA$metadata),
+        sprintf("LMM gate re-selected inside each fold. Fixed-gate AUC=%.4f. Delta=%.4f.",
+                if (primary_method == "SVM-RBF") metrics_svm$auc else metrics_glmnet$auc,
+                nv_m$auc - (if (primary_method == "SVM-RBF") metrics_svm$auc else metrics_glmnet$auc))
+      ),
+      stringsAsFactors = FALSE
+    )
+    openxlsx::addWorksheet(wb, "Nested_LOO_Validation")
+    openxlsx::writeData(wb, "Nested_LOO_Validation", df_nested)
+
+    openxlsx::addWorksheet(wb, "Gate_Stability")
+    openxlsx::writeData(wb, "Gate_Stability", nested_validation$gate_stability)
   }
 
   excel_path <- file.path(out_dir, sprintf("ML_Classification_Report_%s.xlsx", config$project_name))

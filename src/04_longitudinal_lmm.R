@@ -119,7 +119,54 @@ if (n_sig_fdr > 0) {
   }
 }
 
-# 5. Output Serialization
+# 5. Covariate Sensitivity Analysis (optional, config-driven)
+# ------------------------------------------------------------------------------
+sensitivity_results <- NULL
+sensitivity_covariates <- config$clinical$sensitivity_covariates
+
+if (!is.null(sensitivity_covariates) && length(sensitivity_covariates) > 0) {
+  sig_markers_sens <- df_results$Marker[!is.na(df_results$FDR_Interaction) &
+                                          df_results$FDR_Interaction < 0.05]
+  if (length(sig_markers_sens) > 0) {
+    message(sprintf("\n[Stats] Running covariate sensitivity analysis on %d FDR-significant marker(s)...",
+                    length(sig_markers_sens)))
+    message(sprintf("   [Stats] Adjustment covariates: %s", paste(sensitivity_covariates, collapse = ", ")))
+
+    tryCatch({
+      df_raw_t0 <- readxl::read_excel(config$input_file_t0)
+      avail_covs <- intersect(sensitivity_covariates, colnames(df_raw_t0))
+      if (length(avail_covs) == 0) stop("None of the sensitivity covariates found in raw T0 file.")
+
+      df_clin_sens <- df_raw_t0[, c("Patient_ID", avail_covs), drop = FALSE]
+      df_model_adj <- dplyr::left_join(df_model, df_clin_sens, by = "Patient_ID")
+
+      results_sens <- purrr::map_dfr(sig_markers_sens, function(mk) {
+        fit_feature_lmm(data_long = df_model_adj, feature = mk,
+                        group_col = "Group", time_col = "Timepoint", id_col = "Patient_ID",
+                        covariates = avail_covs)
+      })
+      results_sens$FDR_Adj <- p.adjust(results_sens$P_Value_Interaction, method = "BH")
+      results_sens$Covariates_Used <- paste(avail_covs, collapse = "; ")
+      sensitivity_results <- results_sens
+
+      for (i in seq_len(nrow(results_sens))) {
+        mk_s <- results_sens$Marker[i]
+        p_s  <- results_sens$P_Value_Interaction[i]
+        fdr_s <- results_sens$FDR_Adj[i]
+        n_s  <- results_sens$N_Observations[i]
+        message(sprintf("      -> %s: adj. p=%.4f  FDR=%.4f  n=%d%s",
+                        mk_s, p_s, fdr_s, n_s,
+                        if (!is.na(fdr_s) && fdr_s < 0.05) "  [sig]" else ""))
+      }
+    }, error = function(e) {
+      warning(sprintf("[Stats] Covariate sensitivity analysis failed: %s", e$message))
+    })
+  } else {
+    message("[Stats] No FDR-significant markers to adjust — skipping sensitivity analysis.")
+  }
+}
+
+# 6. Output Serialization
 # ------------------------------------------------------------------------------
 json_path <- file.path(out_dir, sprintf("Machine_Metrics_LMM_%s.json", config$project_name))
 machine_output <- list(
@@ -129,7 +176,8 @@ machine_output <- list(
   n_observations = nrow(df_model),
   n_patients = length(unique(df_model$Patient_ID)),
   significant_features_fdr = n_sig_fdr,
-  full_results = df_results
+  full_results = df_results,
+  covariate_sensitivity = if (!is.null(sensitivity_results)) sensitivity_results else NULL
 )
 
 if (requireNamespace("jsonlite", quietly = TRUE)) {
@@ -145,13 +193,19 @@ sig_style <- openxlsx::createStyle(fontColour = "#9C0006", bgFill = "#FFC7CE")
 p_col_idx <- which(names(df_results) == "P_Value_Interaction")
 
 if (length(p_col_idx) > 0) {
-  openxlsx::conditionalFormatting(wb, "LMM_Interaction_Results", cols = p_col_idx, 
+  openxlsx::conditionalFormatting(wb, "LMM_Interaction_Results", cols = p_col_idx,
                                   rows = 2:(nrow(df_results)+1), rule = "< 0.05", style = sig_style)
 }
+
+if (!is.null(sensitivity_results) && nrow(sensitivity_results) > 0) {
+  openxlsx::addWorksheet(wb, "LMM_Covariate_Sensitivity")
+  openxlsx::writeData(wb, "LMM_Covariate_Sensitivity", sensitivity_results)
+}
+
 openxlsx::saveWorkbook(wb, excel_path, overwrite = TRUE)
 message(sprintf("   [Output] Mathematical models matrix saved: %s", basename(excel_path)))
 
-# 6. Volcano Plot & Trajectory Rendering
+# 7. Volcano Plot & Trajectory Rendering
 # ------------------------------------------------------------------------------
 plot_path <- file.path(out_dir, sprintf("Volcano_LMM_%s.pdf", config$project_name))
 pdf(plot_path, width = 9, height = 7)

@@ -1,0 +1,50 @@
+Loading data...
+  T0 classifier: 70 patients x 40 markers
+  Longitudinal:  124 obs x 40 markers (75 unique patients)
+
+Starting fully-nested LOO (this may take 30-60 min)...
+  Outer folds: 70 patients
+  FDR threshold: 0.05  |  LOO threshold: 0.05  |  Collinearity: 0.85
+
+  Fold  5/70  gate=[KI67CD4,KI67NAIVE]  [24s elapsed]
+  Fold 10/70  gate=[KI67CD4,KI67NAIVE]  [46s elapsed]
+  Fold 15/70  gate=[KI67CD4,KI67NAIVE]  [70s elapsed]
+  Fold 20/70  gate=[KI67CD4,KI67NAIVE]  [95s elapsed]
+  Fold 25/70  gate=[KI67CD4,KI67NAIVE]  [115s elapsed]
+  Fold 30/70  gate=[KI67CD4,KI67NAIVE]  [139s elapsed]
+  Fold 35/70  gate=[KI67CD4,KI67NAIVE]  [163s elapsed]
+  Fold 40/70  gate=[KI67CD4,KI67NAIVE]  [186s elapsed]
+  Fold 45/70  gate=[KI67CD4,KI67NAIVE]  [211s elapsed]
+  Fold 50/70  gate=[KI67CD4,KI67NAIVE]  [237s elapsed]
+  Fold 55/70  gate=[KI67CD4,KI67NAIVE]  [259s elapsed]
+  Fold 60/70  gate=[CD28KI67,KI67NAIVE]  [284s elapsed]
+  Fold 65/70  gate=[KI67CD4,KI67NAIVE]  [309s elapsed]
+  Fold 70/70  gate=[KI67CD4,KI67NAIVE]  [332s elapsed]
+
+ ====================================================================== 
+RESULTS — Fully-nested LOO (LMM feature selection inside loop)
+====================================================================== 
+
+Warning message:
+In ci.auc.roc(roc_nested, method = "bootstrap", boot.n = 2000, conf.level = 0.95,  :
+  Progress bars are deprecated in pROC 1.19. Ignoring 'progress' argument
+  AUC        : 0.7358 [0.614–0.853]
+  Bal. Acc   : 0.7167
+  Sensitivity: 0.7333
+  Specificity: 0.7000
+
+Gate marker selection frequency across folds:
+  KI67NAIVE          70 / 70 folds (100%)
+  KI67CD4            67 / 70 folds (96%)
+  CD28KI67            3 / 70 folds (4%)
+
+  Folds with empty gate: 0 / 70 (0%)
+
+  Reference (fixed gate, current pipeline): AUC=0.7158 [0.592–0.839]
+  Difference: 0.0200
+
+Note: DeLong test vs fixed-gate requires re-running pipeline with saved probs.
+      The AUC difference above gives the unbiased leakage correction estimate.
+
+Predicted probabilities saved to diagnostics/diag_03_nested_probs.rds
+Done.

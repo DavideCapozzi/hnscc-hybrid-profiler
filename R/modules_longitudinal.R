@@ -9,6 +9,22 @@ library(dplyr)
 library(ggplot2)
 library(ggrepel)
 
+#' @title Marginal and Conditional R² for LMM (Nakagawa & Schielzeth 2013)
+#' @description Computes variance-partition R² without requiring external packages.
+#' @param mod A fitted lmerMod object.
+#' @return Named list with R2m (marginal, fixed effects only) and R2c (conditional).
+r2_nakagawa <- function(mod) {
+  tryCatch({
+    sigma2_f <- var(predict(mod, re.form = NA))
+    vc       <- as.data.frame(lme4::VarCorr(mod))
+    sigma2_r <- sum(vc$vcov[vc$grp != "Residual"])
+    sigma2_e <- sigma(mod)^2
+    total    <- sigma2_f + sigma2_r + sigma2_e
+    list(R2m = round(sigma2_f / total, 4),
+         R2c = round((sigma2_f + sigma2_r) / total, 4))
+  }, error = function(e) list(R2m = NA_real_, R2c = NA_real_))
+}
+
 #' @title Run Linear Mixed Model on a single feature
 #' @description Fits LMM with an interaction term between Time and Clinical Group.
 #' Includes internal standard deviation scaling and Marginal Time Effect extraction.
@@ -58,8 +74,10 @@ fit_feature_lmm <- function(data_long, feature, group_col = "Group",
     Estimate_Time_Main = NA,
     P_Value_Time_Main = NA,
     Model_Converged = FALSE,
-    Is_Singular = NA, 
-    N_Observations = nrow(df_model)
+    Is_Singular = NA,
+    N_Observations = nrow(df_model),
+    R2m = NA_real_,
+    R2c = NA_real_
   )
   
   if (nrow(df_model) < 10) return(result)
@@ -94,6 +112,10 @@ fit_feature_lmm <- function(data_long, feature, group_col = "Group",
         result$Model_Converged <- TRUE
       }
     }
+
+    r2 <- r2_nakagawa(mod_int)
+    result$R2m <- r2$R2m
+    result$R2c <- r2$R2c
     
     # --- MODEL 2: Marginal Time Model (Positive Control) ---
     formula_time <- "Value ~ Time"

@@ -1,0 +1,53 @@
+Cross-sectional T0: 70 patients x 48 markers
+
+KI67 subfamily markers used for PCA:
+  KI67, KI67CD4, KI67CD8, KI67CM, KI67EFF, KI657EMRA, KI67NAIVE, CD28KI67, PD1KI67, CD137KI67 
+
+Class distribution — RP: 30  |  SD_PD: 40
+
+=== Model A: Current baseline (KI67NAIVE + KI67CD4) ===
+
+KI67NAIVE + KI67CD4 (current)        AUC=0.7050 [0.578–0.827]  BalAcc=0.7083  Sens=0.767  Spec=0.650
+Warning message:
+In ci.auc.roc(roc_obj, method = "bootstrap", boot.n = 2000, conf.level = 0.95,  :
+  Progress bars are deprecated in pROC 1.19. Ignoring 'progress' argument
+
+=== Model B: PC1 of full KI67 family (LOO-clean PCA) ===
+Note: PCA fitted on training fold at each LOO iteration
+
+PC1 variance explained (full data PCA for reference):
+  PC1: 61.7%
+  PC1 loadings (top contributors):
+    CD28KI67        -0.385
+    KI67CD8         -0.363
+    KI657EMRA       -0.355
+    KI67CD4         -0.347
+    PD1KI67         -0.336
+    KI67CM          -0.308
+
+KI67_PC1 only                        AUC=0.2767 [0.153–0.408]  BalAcc=0.5208  Sens=0.067  Spec=0.975
+Warning message:
+In ci.auc.roc(roc_obj, method = "bootstrap", boot.n = 2000, conf.level = 0.95,  :
+  Progress bars are deprecated in pROC 1.19. Ignoring 'progress' argument
+
+=== Model C: PC1 + KI67NAIVE ===
+
+KI67_PC1 + KI67NAIVE                 AUC=0.4408 [0.307–0.576]  BalAcc=0.5292  Sens=0.233  Spec=0.825
+Warning message:
+In ci.auc.roc(roc_obj, method = "bootstrap", boot.n = 2000, conf.level = 0.95,  :
+  Progress bars are deprecated in pROC 1.19. Ignoring 'progress' argument
+
+=== Model D: All KI67 markers directly ===
+
+All 10 KI67 markers                  AUC=0.4400 [0.298–0.586]  BalAcc=0.5833  Sens=0.167  Spec=1.000
+Warning message:
+In ci.auc.roc(roc_obj, method = "bootstrap", boot.n = 2000, conf.level = 0.95,  :
+  Progress bars are deprecated in pROC 1.19. Ignoring 'progress' argument
+
+
+=== DeLong tests vs current baseline ===
+  Baseline vs PC1 only              DeLong p=0.0000
+  Baseline vs PC1+KI67NAIVE         DeLong p=0.0024
+  Baseline vs All KI67              DeLong p=0.0076
+
+Done.
