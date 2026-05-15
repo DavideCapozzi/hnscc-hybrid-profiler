@@ -13,12 +13,13 @@
 #
 # Output: diagnostics/diag_05_output.txt
 
+library(here)
 library(readxl)
 library(lmerTest)
 library(dplyr)
 library(tidyr)
 
-OUT_FILE <- "diagnostics/diag_05_output.txt"
+OUT_FILE <- here("diagnostics/diag_05_output.txt")
 con <- file(OUT_FILE, open = "wt")
 sink(con, split = TRUE)
 on.exit({ sink(); close(con) }, add = TRUE)
@@ -31,11 +32,11 @@ logit_pct <- function(x) {
 }
 
 # ── 1. Load processed longitudinal data (KI67 z-scores + QC'd patient list) ───
-DATA_L <- readRDS(
+DATA_L <- readRDS(here(
   "results/BestResponse_2v3_4/01_data_processing/data_processed_BestResponse_2v3_4_longitudinal.rds"
-)
-df_raw_t0 <- read_excel("data/Dati_NSCLC_standardizzati_anonimi_T0.xlsx")
-df_raw_t1 <- read_excel("data/Dati_NSCLC_standardizzati_anonimi_T1.xlsx")
+))
+df_raw_t0 <- read_excel(here("data/Dati_NSCLC_standardizzati_anonimi_T0.xlsx"))
+df_raw_t1 <- read_excel(here("data/Dati_NSCLC_standardizzati_anonimi_T1.xlsx"))
 
 meta <- DATA_L$metadata
 hz   <- DATA_L$hybrid_data_z

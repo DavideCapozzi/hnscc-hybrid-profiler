@@ -42,6 +42,7 @@ if (!is.null(base_config$experiments) && length(base_config$experiments) > 0) {
 message("\n>>> LOADING MODULES <<<")
 list.files(here("R"), pattern = "\\.R$", full.names = TRUE) %>% purrr::walk(source)
 message("[System] Modules loaded successfully.")
+validate_config(base_config)
 
 # 2. Pipeline Execution Loop
 # ------------------------------------------------------------------------------

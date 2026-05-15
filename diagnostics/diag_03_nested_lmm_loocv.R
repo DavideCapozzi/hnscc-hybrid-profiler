@@ -20,14 +20,13 @@
 # ==============================================================================
 
 suppressPackageStartupMessages({
+  library(here)
   library(lmerTest)
   library(lme4)
   library(dplyr)
   library(e1071)
   library(pROC)
 })
-
-setwd("/home/laboratorio/projects/clinical-onco-profiler")
 
 # ── Parameters ────────────────────────────────────────────────────────────────
 fdr_thr  <- 0.05
@@ -37,8 +36,8 @@ seed     <- 2026
 
 # ── Load data ─────────────────────────────────────────────────────────────────
 cat("Loading data...\n")
-obj_std  <- readRDS("results/BestResponse_2v3_4/01_data_processing/data_processed_BestResponse_2v3_4_standard.rds")
-obj_long <- readRDS("results/BestResponse_2v3_4/01_data_processing/data_processed_BestResponse_2v3_4_longitudinal.rds")
+obj_std  <- readRDS(here("results/BestResponse_2v3_4/01_data_processing/data_processed_BestResponse_2v3_4_standard.rds"))
+obj_long <- readRDS(here("results/BestResponse_2v3_4/01_data_processing/data_processed_BestResponse_2v3_4_longitudinal.rds"))
 
 # Cross-sectional T0 data (for classifier)
 # hybrid_data_z contains meta columns (Patient_ID, Sample_ID, Timepoint, Group)
@@ -315,6 +314,6 @@ cat("      The AUC difference above gives the unbiased leakage correction estima
 
 # Save probs for potential follow-up DeLong
 saveRDS(list(probs = probs_nested, y = y_all, gate_per_fold = gate_markers_per_fold),
-        "diagnostics/diag_03_nested_probs.rds")
+        here("diagnostics/diag_03_nested_probs.rds"))
 cat("\nPredicted probabilities saved to diagnostics/diag_03_nested_probs.rds\n")
 cat("Done.\n")

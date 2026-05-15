@@ -58,7 +58,7 @@ dependencies:
 
   # === DIMENSIONALITY REDUCTION ===
   - bioconductor-pcamethods
-  - bioconductor-mixomics
+  - bioconductor-mixomics>=6.24
 
   # === NETWORK ANALYSIS & ROBUST STATISTICS ===
   - r-igraph>=2.0
@@ -93,12 +93,13 @@ dependencies:
   - r-pwr
   - bioconductor-multtest
   - r-vegan
-  - r-lmertest
+  - r-lmertest>=3.1
+  - r-lme4>=1.1
 
   # === MACHINE LEARNING CLASSIFICATION ===
   - r-glmnet           # Elastic net logistic regression (Friedman et al.)
   - r-e1071            # SVM via libsvm (Vapnik kernel methods)
-  - r-proc             # ROC curves and AUC — conda-forge name for pROC (Robin et al.)
+  - r-proc>=1.18       # ROC curves and AUC — conda-forge name for pROC (Robin et al.)
 
   # === BIOCONDUCTOR CORE ===
   - bioconductor-biobase

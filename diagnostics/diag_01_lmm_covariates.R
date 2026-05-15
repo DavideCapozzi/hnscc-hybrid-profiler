@@ -10,6 +10,7 @@
 # ==============================================================================
 
 suppressPackageStartupMessages({
+  library(here)
   library(lmerTest)
   library(lme4)
   library(dplyr)
@@ -17,9 +18,8 @@ suppressPackageStartupMessages({
   library(tidyr)
 })
 
-setwd("/home/laboratorio/projects/clinical-onco-profiler")
-
-# ── Marginal R² (manual implementation, Nakagawa & Schielzeth 2013) ─────────
+# ── Marginal R² (Nakagawa & Schielzeth 2013) ────────────────────────────────
+# NOTE: mirrors r2_nakagawa() in R/modules_longitudinal.R
 r2_nakagawa <- function(mod) {
   tryCatch({
     # Fixed effects variance
@@ -38,8 +38,8 @@ r2_nakagawa <- function(mod) {
 
 # ── Load clinical metadata ───────────────────────────────────────────────────
 cat("Loading raw clinical data...\n")
-df_raw_t0 <- read_excel("data/Dati_NSCLC_standardizzati_T0.xlsx")
-df_raw_t1 <- read_excel("data/Dati_NSCLC_standardizzati_T1.xlsx")
+df_raw_t0 <- read_excel(here("data/Dati_NSCLC_standardizzati_T0.xlsx"))
+df_raw_t1 <- read_excel(here("data/Dati_NSCLC_standardizzati_T1.xlsx"))
 
 # Standardise clinical covariate column names
 df_clin <- df_raw_t0 %>%
@@ -68,7 +68,7 @@ cat(sprintf("  Smoking avail:   %d / %d\n\n", sum(!is.na(df_clin$Smoking)), nrow
 
 # ── Load longitudinal processed data ────────────────────────────────────────
 cat("Loading longitudinal processed data...\n")
-obj_long <- readRDS("results/BestResponse_2v3_4/01_data_processing/data_processed_BestResponse_2v3_4_longitudinal.rds")
+obj_long <- readRDS(here("results/BestResponse_2v3_4/01_data_processing/data_processed_BestResponse_2v3_4_longitudinal.rds"))
 
 data_z  <- obj_long$hybrid_data_z    # z-scored feature matrix
 meta    <- obj_long$metadata         # Patient_ID, Timepoint, Group

@@ -110,8 +110,9 @@ filter_collinear_features <- function(X_main, cor_threshold = 0.85) {
     others <- markers[!markers %in% c(m1, m2)]
 
     if (length(others) == 0) {
-      # Only two markers left and they're collinear — keep the one with lower
-      # correlation to itself (identical: keep m1 by convention, drop m2)
+      # Only two markers left and both are collinear with each other.
+      # With no other markers to compute mean |r| against, break the tie
+      # by convention (drop m2, keep m1).
       dropped <- c(dropped, m2)
       markers <- m1
       break

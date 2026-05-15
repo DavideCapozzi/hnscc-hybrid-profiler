@@ -3,17 +3,18 @@
 # Uses processed T0 data (n=70 post-QC) matched to raw clinical survival columns.
 # Output mirrored to diagnostics/diag_04_output.txt
 
+library(here)
 library(readxl)
 library(survival)
 library(dplyr)
 
-OUT_FILE <- "diagnostics/diag_04_output.txt"
+OUT_FILE <- here("diagnostics/diag_04_output.txt")
 con <- file(OUT_FILE, open = "wt")
 sink(con, split = TRUE)
 on.exit({ sink(); close(con) }, add = TRUE)
 
-DATA    <- readRDS("results/BestResponse_2v3_4/01_data_processing/data_processed_BestResponse_2v3_4_standard.rds")
-df_raw  <- read_excel("data/Dati_NSCLC_standardizzati_anonimi_T0.xlsx")
+DATA    <- readRDS(here("results/BestResponse_2v3_4/01_data_processing/data_processed_BestResponse_2v3_4_standard.rds"))
+df_raw  <- read_excel(here("data/Dati_NSCLC_standardizzati_anonimi_T0.xlsx"))
 
 # --- Prepare survival data ---
 df_surv <- df_raw %>%

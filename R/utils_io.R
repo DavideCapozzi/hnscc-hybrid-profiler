@@ -406,3 +406,38 @@ save_qc_report <- function(qc_list, out_path, config = NULL) {
 safe_sheet_name <- function(name, max_len = 31) {
   return(substr(name, 1, max_len))
 }
+
+
+#' @title Validate Pipeline Configuration
+#' @description
+#' Pre-flight check that the loaded YAML config has the required structural keys
+#' before any expensive computation begins. Checks invariants only (not every
+#' parameter leaf), so the function stays stable as optional keys are added.
+#'
+#' Stops with an actionable message if a required key is missing or empty.
+#'
+#' @param cfg Named list. The result of \code{yaml::read_yaml()}.
+#' @return Invisibly TRUE if all checks pass.
+validate_config <- function(cfg) {
+  if (is.null(cfg$output_root))
+    stop("[CONFIG] Missing required key: output_root")
+
+  if (is.null(cfg$features$facs) || length(cfg$features$facs) == 0)
+    stop("[CONFIG] features.facs is empty or missing — define the FACS marker panel")
+
+  if (is.null(cfg$features$soluble) || length(cfg$features$soluble) == 0)
+    stop("[CONFIG] features.soluble is empty or missing — define the soluble marker panel")
+
+  if (!is.null(cfg$experiments) && length(cfg$experiments) > 0) {
+    for (nm in names(cfg$experiments)) {
+      exp <- cfg$experiments[[nm]]
+      if (is.null(exp$clinical$target_column))
+        stop(sprintf("[CONFIG] Experiment '%s' missing clinical.target_column", nm))
+    }
+  } else {
+    if (is.null(cfg$clinical$target_column))
+      stop("[CONFIG] Flat config missing clinical.target_column")
+  }
+
+  invisible(TRUE)
+}

@@ -13,15 +13,14 @@
 # ==============================================================================
 
 suppressPackageStartupMessages({
+  library(here)
   library(dplyr)
   library(e1071)
   library(pROC)
 })
 
-setwd("/home/laboratorio/projects/clinical-onco-profiler")
-
 # ── Load cross-sectional T0 data ─────────────────────────────────────────────
-obj_std <- readRDS("results/BestResponse_2v3_4/01_data_processing/data_processed_BestResponse_2v3_4_standard.rds")
+obj_std <- readRDS(here("results/BestResponse_2v3_4/01_data_processing/data_processed_BestResponse_2v3_4_standard.rds"))
 data_z  <- obj_std$hybrid_data_z
 meta    <- obj_std$metadata
 
