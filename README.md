@@ -140,9 +140,7 @@ These scripts require the main pipeline to have been run first (so that `results
 
 ## Citation
 
-If you use this pipeline, please cite:
-
-> [Manuscript in preparation] — Capozzi D. et al., *Multi-layer immunological profiling identifies a KI67 proliferative reset signature associated with ICI response in NSCLC*. 2025.
+If you use this pipeline, please cite
 
 ---
 
