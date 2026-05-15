@@ -62,7 +62,7 @@ fit_feature_lmm <- function(data_long, feature, group_col = "Group",
     }
   }
   
-  df_model <- as.data.frame(df_list)
+  df_model <- as.data.frame(df_list, check.names = FALSE)
   df_model <- df_model[complete.cases(df_model), ]
   
   result <- data.frame(
@@ -85,7 +85,7 @@ fit_feature_lmm <- function(data_long, feature, group_col = "Group",
   tryCatch({
     # --- MODEL 1: Interaction Model (Primary Objective) ---
     formula_int <- "Value ~ Time * Group"
-    if (length(valid_covs) > 0) formula_int <- paste(formula_int, "+", paste(valid_covs, collapse = " + "))
+    if (length(valid_covs) > 0) formula_int <- paste(formula_int, "+", paste(sprintf("`%s`", valid_covs), collapse = " + "))
     formula_int <- paste(formula_int, "+ (1 | ID)")
     
     mod_int <- suppressMessages(suppressWarnings(
@@ -119,7 +119,7 @@ fit_feature_lmm <- function(data_long, feature, group_col = "Group",
     
     # --- MODEL 2: Marginal Time Model (Positive Control) ---
     formula_time <- "Value ~ Time"
-    if (length(valid_covs) > 0) formula_time <- paste(formula_time, "+", paste(valid_covs, collapse = " + "))
+    if (length(valid_covs) > 0) formula_time <- paste(formula_time, "+", paste(sprintf("`%s`", valid_covs), collapse = " + "))
     formula_time <- paste(formula_time, "+ (1 | ID)")
     
     mod_time <- suppressMessages(suppressWarnings(

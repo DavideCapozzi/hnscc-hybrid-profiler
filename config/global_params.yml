@@ -28,6 +28,7 @@ experiments:
       sensitivity_covariates:
         - "PD_L1"
         - "PS_prima_immuno"
+        - "Terapia_Pembro_1_Pembro_CHT_2_ipi/nivo_CHT_3;_Atezo_CHT_4"
 
   Comorbidity_1v0:
     is_longitudinal: true
