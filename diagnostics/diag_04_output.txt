@@ -1,0 +1,44 @@
+[NOTE] Excluding 1 patient(s) with zero follow-up time: alteri
+Matched patients: 69 | OS events: 55 | PFS events: 63
+Median OS: 10.0 months | Median PFS: 7.0 months
+
+=== Cox PH — KI67NAIVE (z-score) ===
+  Cox OS ~ KI67NAIVE: HR=1.044 [0.795-1.371] p=0.7565
+  Cox PFS ~ KI67NAIVE: HR=0.939 [0.732-1.206] p=0.6247
+
+=== Cox PH — KI67CD4 (z-score) ===
+  Cox OS ~ KI67CD4: HR=1.208 [0.905-1.612] p=0.1993
+  Cox PFS ~ KI67CD4: HR=1.041 [0.797-1.360] p=0.7669
+
+=== Optimal cutpoint — KI67NAIVE ===
+  OS  best cut=-0.457 (z-score) | log-rank chi2=1.56 | p=0.2115
+  PFS best cut=0.673 (z-score) | log-rank chi2=2.60 | p=0.1068
+
+=== Optimal cutpoint — KI67CD4 ===
+  OS  best cut=0.180 (z-score) | log-rank chi2=5.95 | p=0.0148
+  PFS best cut=0.180 (z-score) | log-rank chi2=1.19 | p=0.2756
+
+=== Concordance index (C-stat) ===
+  OS  KI67NAIVE: C=0.498
+  PFS KI67NAIVE: C=0.536
+  OS  KI67CD4:   C=0.468
+  PFS KI67CD4:   C=0.511
+
+=== Kaplan-Meier with optimal cut (KI67NAIVE) ===
+  OS: Low median=12.0 | High median=9.5 | log-rank p=0.2115
+       n(Low)=21 n(High)=48
+  PFS: Low median=6.0 | High median=10.0 | log-rank p=0.1068
+       n(Low)=52 n(High)=17
+
+=== Kaplan-Meier with optimal cut (KI67CD4) ===
+  OS: Low median=13.0 | High median=8.0 | log-rank p=0.0148
+       n(Low)=45 n(High)=24
+  PFS: Low median=7.0 | High median=6.0 | log-rank p=0.2756
+       n(Low)=45 n(High)=24
+
+=== Multivariate Cox OS: KI67NAIVE + PD_L1 + PS ===
+  n for multivariate: 58
+          exp(coef) lower .95 upper .95 Pr(>|z|)
+KI67NAIVE    0.9357    0.6893    1.2702   0.6700
+PD_L1        0.9943    0.9832    1.0055   0.3166
+PS           1.8258    1.2334    2.7028   0.0026
