@@ -7,9 +7,9 @@ output_root: "results"
 project_name: "base_run"
 run_machine_learning: true
 run_nested_loocv_validation: true
-input_file: "data/Dati_NSCLC_standardizzati_T0.xlsx"
-input_file_t0: "data/Dati_NSCLC_standardizzati_T0.xlsx"
-input_file_t1: "data/Dati_NSCLC_standardizzati_T1.xlsx"
+input_file: "data/Dati_NSCLC_standardizzati_anonimi_T0.xlsx"
+input_file_t0: "data/Dati_NSCLC_standardizzati_anonimi_T0.xlsx"
+input_file_t1: "data/Dati_NSCLC_standardizzati_anonimi_T1.xlsx"
 
 # --- Experiment Iterations ---
 experiments:

@@ -1,4 +1,4 @@
-[NOTE] Excluding 1 patient(s) with zero follow-up time: alteri
+[NOTE] Excluding 1 patient(s) with zero follow-up time: NSCLC_3
 Matched patients: 69 | OS events: 55 | PFS events: 63
 Median OS: 10.0 months | Median PFS: 7.0 months
 

@@ -13,7 +13,7 @@ sink(con, split = TRUE)
 on.exit({ sink(); close(con) }, add = TRUE)
 
 DATA    <- readRDS("results/BestResponse_2v3_4/01_data_processing/data_processed_BestResponse_2v3_4_standard.rds")
-df_raw  <- read_excel("data/Dati_NSCLC_standardizzati_T0.xlsx")
+df_raw  <- read_excel("data/Dati_NSCLC_standardizzati_anonimi_T0.xlsx")
 
 # --- Prepare survival data ---
 df_surv <- df_raw %>%
