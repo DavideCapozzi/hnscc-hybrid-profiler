@@ -41,8 +41,16 @@ if (ref_level %in% avail_levels) {
   df_model$Group <- factor(df_model$Group)
 }
 
-message(sprintf("   [Data] Longitudinal dimensions established: %d matrix observations (T0: %d, T1: %d)", 
-                nrow(df_model), sum(df_model$Timepoint == "T0"), sum(df_model$Timepoint == "T1")))
+n_t0 <- sum(df_model$Timepoint == "T0")
+n_t1 <- sum(df_model$Timepoint == "T1")
+message(sprintf("   [Data] Longitudinal dimensions established: %d matrix observations (T0: %d, T1: %d)",
+                nrow(df_model), n_t0, n_t1))
+if (n_t0 != n_t1) {
+  message(sprintf(
+    "   [Data] Note: %d patient(s) have only one timepoint. LMM is valid under MAR (Missing At Random); verify that dropout is not response-correlated.",
+    abs(n_t0 - n_t1)
+  ))
+}
 
 covariates_list <- if (!is.null(config$clinical$covariates)) unlist(config$clinical$covariates) else NULL
 
@@ -132,7 +140,9 @@ if (!is.null(sensitivity_covariates) && length(sensitivity_covariates) > 0) {
                     length(sig_markers_sens)))
     message(sprintf("   [Stats] Adjustment covariates: %s", paste(sensitivity_covariates, collapse = ", ")))
 
-    tryCatch({
+    if (!file.exists(config$input_file_t0)) {
+      warning(sprintf("[Stats] Covariate sensitivity skipped: raw T0 file not found at '%s'.", config$input_file_t0))
+    } else tryCatch({
       df_raw_t0 <- readxl::read_excel(config$input_file_t0)
       avail_covs <- intersect(sensitivity_covariates, colnames(df_raw_t0))
       if (length(avail_covs) == 0) stop("None of the sensitivity covariates found in raw T0 file.")

@@ -1,0 +1,107 @@
+=== LONGITUDINAL PIPELINE STARTED: 2026-05-18 12:23:11.866631 ===
+>>> RUNNING PHASE 1: JOINT DATA PROCESSING <<<
+
+
+=== PIPELINE STEP 1: INGESTION + HYBRID QC + TRANSFORM ===
+
+[Data] Matrix initialized: 129 Samples x 48 Hybrid Markers
+
+[QC] Executing Split Quality Control Strategy...
+
+   [QC-A] Enforcing Missingness Tolerances (Dual Domain Thresholds)...
+
+[QC] Running Hybrid Quality Control...
+
+   [QC] Dropping 5 patients with >40% total missingness.
+
+   [QC] Dropping 1 markers due to domain-specific missingness thresholds.
+
+   [QC] Final Dimensions: 124 Samples x 47 Markers
+
+[QC] Final Matrix Dimensions: 124 Samples x 47 Markers
+
+[Transform] Executing Final Hybrid Transformation (Mode: fast)...
+
+
+[Transform] Starting Hybrid Strategy (fast mode)...
+
+   [Transform] Processed 42 FACS markers (Method: logit).
+
+   [Transform] Processed 5 Soluble markers (Method: log2(x+1)).
+
+[IO] QC Report saved to: results/BestResponse_2v3_4/01_data_processing/QC_Filtering_Report_BestResponse_2v3_4_longitudinal.xlsx
+
+   [Output] Serialized data objects saved: data_processed_BestResponse_2v3_4_longitudinal.rds
+
+=== STEP 1 COMPLETE ===
+
+
+
+>>> RUNNING PHASE 4: LONGITUDINAL LMM ANALYSIS <<<
+
+
+=== PIPELINE STEP 4: LONGITUDINAL ANALYSIS (LMM) ===
+
+[Data] Loading Joint Pharmacodynamic Dataset: data_processed_BestResponse_2v3_4_longitudinal.rds
+
+   [Data] Longitudinal dimensions established: 124 matrix observations (T0: 73, T1: 51)
+
+
+[Stats] Initiating Linear Mixed Models (LMM) for longitudinal variance extraction...
+
+
+[Stats] LMM integration successful. Identified 5 raw significant markers, 3 survive FDR adjustment.
+
+   [Stats] Executing Leave-One-Out (LOO) Sensitivity protocol on topological drivers...
+
+      -> KI67NAIVE: Structurally Robust (Max P-Value = 0.0014)
+
+      -> CD28KI67: Structurally Robust (Max P-Value = 0.0021)
+
+      -> KI67CD4: Structurally Robust (Max P-Value = 0.0053)
+
+
+[Stats] Running covariate sensitivity analysis on 3 FDR-significant marker(s)...
+
+   [Stats] Adjustment covariates: PD_L1, PS_prima_immuno, Terapia_Pembro_1_Pembro_CHT_2_ipi/nivo_CHT_3;_Atezo_CHT_4
+
+      -> KI67NAIVE: adj. p=0.0014  FDR=0.0041  n=92  [sig]
+
+      -> CD28KI67: adj. p=0.0146  FDR=0.0146  n=93  [sig]
+
+      -> KI67CD4: adj. p=0.0113  FDR=0.0146  n=93  [sig]
+
+
+[Stats] Running patient-level cluster bootstrap (n_boot=500) on 3 FDR-significant marker(s)...
+
+      [Bootstrap] iter 100/500  [167s elapsed, ~669s remaining]
+
+      [Bootstrap] iter 200/500  [331s elapsed, ~496s remaining]
+
+      [Bootstrap] iter 300/500  [498s elapsed, ~332s remaining]
+
+      [Bootstrap] iter 400/500  [664s elapsed, ~166s remaining]
+
+      [Bootstrap] iter 500/500  [827s elapsed, ~0s remaining]
+
+      -> KI67NAIVE: median=-1.398 [-2.168, -0.512]  %FDR<0.05=75.2%  (n_valid=500)
+
+      -> CD28KI67: median=-0.911 [-1.383, -0.436]  %FDR<0.05=73.0%  (n_valid=500)
+
+      -> KI67CD4: median=-1.081 [-1.732, -0.462]  %FDR<0.05=64.8%  (n_valid=500)
+
+   [Output] Mathematical models matrix saved: Longitudinal_LMM_Report_BestResponse_2v3_4.xlsx
+
+
+[Viz] Generating Patient Trajectory vectors...
+
+   [Output] Temporal trajectory visualizations exported: Trajectories_LMM_BestResponse_2v3_4.pdf
+
+   [Output] Bootstrap forest plot exported: Forest_Bootstrap_LMM_BestResponse_2v3_4.pdf
+
+=== STEP 4 COMPLETE ===
+
+
+
+[SUCCESS] Longitudinal Pipeline completed for: BestResponse_2v3_4
+

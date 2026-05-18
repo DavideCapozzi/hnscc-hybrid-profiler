@@ -1,0 +1,312 @@
+{
+  "project_name": "Toxicity_1v0",
+  "clinical_target": "tossicità_da_immuno_No_0_Si_1",
+  "model_type": "sPLS-DA",
+  "validation_method": "Mfold",
+  "cv_folds": 5,
+  "cv_repeats": 50,
+  "performance_per_component": [
+    {
+      "Component": 1,
+      "Overall_BER": 0.4649,
+      "Validation_Method": "Mfold",
+      "keepX": 30
+    },
+    {
+      "Component": 2,
+      "Overall_BER": 0.4877,
+      "Validation_Method": "Mfold",
+      "keepX": 5
+    }
+  ],
+  "top_drivers": [
+    {
+      "Domain": "FACS",
+      "Marker": "KI67CD8",
+      "Importance": 0.3427,
+      "Comp1_Weight": 0.3427,
+      "Comp2_Weight": 0,
+      "Direction": "Positive_Assoc",
+      "_row": "KI67CD8"
+    },
+    {
+      "Domain": "FACS",
+      "Marker": "PD1CD4",
+      "Importance": 0.318,
+      "Comp1_Weight": -0.318,
+      "Comp2_Weight": 0,
+      "Direction": "Negative_Assoc",
+      "_row": "PD1CD4"
+    },
+    {
+      "Domain": "FACS",
+      "Marker": "KI67CM",
+      "Importance": 0.3112,
+      "Comp1_Weight": 0.3112,
+      "Comp2_Weight": 0,
+      "Direction": "Positive_Assoc",
+      "_row": "KI67CM"
+    },
+    {
+      "Domain": "FACS",
+      "Marker": "CD4tot",
+      "Importance": 0.308,
+      "Comp1_Weight": -0.308,
+      "Comp2_Weight": -0.7388,
+      "Direction": "Negative_Assoc",
+      "_row": "CD4tot"
+    },
+    {
+      "Domain": "FACS",
+      "Marker": "CD137EMRA",
+      "Importance": 0.2593,
+      "Comp1_Weight": 0.2593,
+      "Comp2_Weight": 0,
+      "Direction": "Positive_Assoc",
+      "_row": "CD137EMRA"
+    },
+    {
+      "Domain": "FACS",
+      "Marker": "KI657EMRA",
+      "Importance": 0.2438,
+      "Comp1_Weight": 0.2438,
+      "Comp2_Weight": 0,
+      "Direction": "Positive_Assoc",
+      "_row": "KI657EMRA"
+    },
+    {
+      "Domain": "FACS",
+      "Marker": "PD1",
+      "Importance": 0.2363,
+      "Comp1_Weight": -0.2363,
+      "Comp2_Weight": 0,
+      "Direction": "Negative_Assoc",
+      "_row": "PD1"
+    },
+    {
+      "Domain": "FACS",
+      "Marker": "KI67EFF",
+      "Importance": 0.2337,
+      "Comp1_Weight": 0.2337,
+      "Comp2_Weight": 0,
+      "Direction": "Positive_Assoc",
+      "_row": "KI67EFF"
+    },
+    {
+      "Domain": "FACS",
+      "Marker": "CD137CM",
+      "Importance": 0.2259,
+      "Comp1_Weight": 0.2259,
+      "Comp2_Weight": 0,
+      "Direction": "Positive_Assoc",
+      "_row": "CD137CM"
+    },
+    {
+      "Domain": "FACS",
+      "Marker": "CD137EFF",
+      "Importance": 0.2161,
+      "Comp1_Weight": 0.2161,
+      "Comp2_Weight": 0,
+      "Direction": "Positive_Assoc",
+      "_row": "CD137EFF"
+    },
+    {
+      "Domain": "FACS",
+      "Marker": "KI67CD4",
+      "Importance": 0.1998,
+      "Comp1_Weight": 0.1998,
+      "Comp2_Weight": -0.1517,
+      "Direction": "Positive_Assoc",
+      "_row": "KI67CD4"
+    },
+    {
+      "Domain": "FACS",
+      "Marker": "PD1NAIVE",
+      "Importance": 0.191,
+      "Comp1_Weight": -0.191,
+      "Comp2_Weight": 0,
+      "Direction": "Negative_Assoc",
+      "_row": "PD1NAIVE"
+    },
+    {
+      "Domain": "FACS",
+      "Marker": "CD3tot",
+      "Importance": 0.1785,
+      "Comp1_Weight": 0.1785,
+      "Comp2_Weight": 0,
+      "Direction": "Positive_Assoc",
+      "_row": "CD3tot"
+    },
+    {
+      "Domain": "FACS",
+      "Marker": "CD28EMRA",
+      "Importance": 0.1741,
+      "Comp1_Weight": 0.1741,
+      "Comp2_Weight": 0,
+      "Direction": "Positive_Assoc",
+      "_row": "CD28EMRA"
+    },
+    {
+      "Domain": "Soluble",
+      "Marker": "NOX2_pg/mL",
+      "Importance": 0.1647,
+      "Comp1_Weight": -0.1647,
+      "Comp2_Weight": 0,
+      "Direction": "Negative_Assoc",
+      "_row": "NOX2_pg/mL"
+    },
+    {
+      "Domain": "FACS",
+      "Marker": "PD1CD8",
+      "Importance": 0.1642,
+      "Comp1_Weight": -0.1642,
+      "Comp2_Weight": 0,
+      "Direction": "Negative_Assoc",
+      "_row": "PD1CD8"
+    },
+    {
+      "Domain": "FACS",
+      "Marker": "CD28KI67",
+      "Importance": 0.1297,
+      "Comp1_Weight": 0.1297,
+      "Comp2_Weight": -0.3246,
+      "Direction": "Positive_Assoc",
+      "_row": "CD28KI67"
+    },
+    {
+      "Domain": "Soluble",
+      "Marker": "neutrophils",
+      "Importance": 0.108,
+      "Comp1_Weight": -0.108,
+      "Comp2_Weight": 0,
+      "Direction": "Negative_Assoc",
+      "_row": "neutrophils"
+    },
+    {
+      "Domain": "FACS",
+      "Marker": "PD1CM",
+      "Importance": 0.0853,
+      "Comp1_Weight": -0.0853,
+      "Comp2_Weight": 0,
+      "Direction": "Negative_Assoc",
+      "_row": "PD1CM"
+    },
+    {
+      "Domain": "FACS",
+      "Marker": "EM",
+      "Importance": 0.0823,
+      "Comp1_Weight": 0.0823,
+      "Comp2_Weight": 0,
+      "Direction": "Positive_Assoc",
+      "_row": "EM"
+    },
+    {
+      "Domain": "FACS",
+      "Marker": "CD28EFF",
+      "Importance": 0.0764,
+      "Comp1_Weight": -0.0764,
+      "Comp2_Weight": 0,
+      "Direction": "Negative_Assoc",
+      "_row": "CD28EFF"
+    },
+    {
+      "Domain": "Soluble",
+      "Marker": "total_WBC",
+      "Importance": 0.0755,
+      "Comp1_Weight": -0.0755,
+      "Comp2_Weight": 0,
+      "Direction": "Negative_Assoc",
+      "_row": "total_WBC"
+    },
+    {
+      "Domain": "Soluble",
+      "Marker": "neutrophils/lymphocytes",
+      "Importance": 0.0483,
+      "Comp1_Weight": -0.0483,
+      "Comp2_Weight": 0,
+      "Direction": "Negative_Assoc",
+      "_row": "neutrophils/lymphocytes"
+    },
+    {
+      "Domain": "FACS",
+      "Marker": "PD1EFF",
+      "Importance": 0.0456,
+      "Comp1_Weight": -0.0456,
+      "Comp2_Weight": 0,
+      "Direction": "Negative_Assoc",
+      "_row": "PD1EFF"
+    },
+    {
+      "Domain": "FACS",
+      "Marker": "CD8tot",
+      "Importance": 0.0409,
+      "Comp1_Weight": 0.0409,
+      "Comp2_Weight": 0,
+      "Direction": "Positive_Assoc",
+      "_row": "CD8tot"
+    },
+    {
+      "Domain": "FACS",
+      "Marker": "KI67NAIVE",
+      "Importance": 0.0304,
+      "Comp1_Weight": 0.0304,
+      "Comp2_Weight": 0,
+      "Direction": "Positive_Assoc",
+      "_row": "KI67NAIVE"
+    },
+    {
+      "Domain": "FACS",
+      "Marker": "CD28CM",
+      "Importance": 0.0241,
+      "Comp1_Weight": -0.0241,
+      "Comp2_Weight": 0,
+      "Direction": "Negative_Assoc",
+      "_row": "CD28CM"
+    },
+    {
+      "Domain": "FACS",
+      "Marker": "KI67",
+      "Importance": 0.0141,
+      "Comp1_Weight": 0.0141,
+      "Comp2_Weight": 0,
+      "Direction": "Positive_Assoc",
+      "_row": "KI67"
+    },
+    {
+      "Domain": "FACS",
+      "Marker": "CD28",
+      "Importance": 0.013,
+      "Comp1_Weight": -0.013,
+      "Comp2_Weight": 0,
+      "Direction": "Negative_Assoc",
+      "_row": "CD28"
+    },
+    {
+      "Domain": "FACS",
+      "Marker": "CD137NAIVE",
+      "Importance": 0.0103,
+      "Comp1_Weight": -0.0103,
+      "Comp2_Weight": 0,
+      "Direction": "Negative_Assoc",
+      "_row": "CD137NAIVE"
+    },
+    {
+      "Domain": "FACS",
+      "Marker": "CD137CD4",
+      "Importance": 0,
+      "Comp1_Weight": 0,
+      "Comp2_Weight": -0.5663,
+      "Direction": "Negative_Assoc",
+      "_row": "CD137CD4"
+    },
+    {
+      "Domain": "FACS",
+      "Marker": "CD137KI67",
+      "Importance": 0,
+      "Comp1_Weight": 0,
+      "Comp2_Weight": -0.071,
+      "Direction": "Negative_Assoc",
+      "_row": "CD137KI67"
+    }
+  ]
+}

@@ -272,8 +272,8 @@ run_nested_loocv_glmnet <- function(X, y,
       }
     }
 
-    # Fit final model on full training fold with best hyperparameters
-    set.seed(seed + i)
+    # Fit final model on full training fold with best hyperparameters.
+    # glmnet with a fixed lambda is deterministic — no set.seed needed here.
     final_fit <- tryCatch(
       glmnet::glmnet(X_train, as.numeric(y_train), family = "binomial",
                      alpha = best_alpha, lambda = best_lambda),
@@ -707,15 +707,16 @@ run_permutation_auc_test <- function(y_true, predicted_probs, positive_label,
 #' @title Univariate AUC (Parameter-Free)
 #' @description
 #' Computes AUC with 95% CI (DeLong) for each marker independently using the
-#' raw Z-score as predictor on all n samples. No hyperparameter tuning occurs,
-#' so no LOOCV is needed — the estimate is unbiased by construction.
+#' Z-score as predictor on all n samples. Direction is auto-selected (max AUC).
+#' No hyperparameter tuning and no threshold selection occur, so no LOOCV is
+#' needed — the rank-based AUC estimate is unbiased by construction.
 #'
 #' @param X_main Numeric matrix. Main-effect columns only (no interaction terms).
 #' @param y Factor. Binary outcome.
 #' @param positive_label String. The positive class label.
 #' @return A data.frame with columns: Marker, AUC, CI_Lower, CI_Upper.
 #' @export
-run_univariate_loo_auc <- function(X_main, y, positive_label) {
+run_univariate_auc <- function(X_main, y, positive_label) {
   if (!requireNamespace("pROC", quietly = TRUE)) {
     stop("[ML] Package 'pROC' required for univariate AUC.")
   }
@@ -1345,10 +1346,10 @@ run_combined_benchmark_model <- function(DATA, X_main, y, positive_label,
 #' Uses the same visual style as plot_ml_roc() (bw theme, diagonal reference,
 #' AUC in legend). Reconstructs ROC objects from the full dataset Z-scores.
 #'
-#' @param X_main Numeric matrix. Main-effect columns (same used in run_univariate_loo_auc).
+#' @param X_main Numeric matrix. Main-effect columns (same used in run_univariate_auc).
 #' @param y Factor. Binary outcome.
 #' @param positive_label String. The positive class label.
-#' @param univariate_df Data.frame returned by run_univariate_loo_auc() (for AUC labels).
+#' @param univariate_df Data.frame returned by run_univariate_auc() (for AUC labels).
 #' @param colors_viz Named character vector (optional, for marker colours).
 #' @param title String. Plot title.
 #' @return A ggplot object, or NULL on failure.

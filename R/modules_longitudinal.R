@@ -169,6 +169,8 @@ run_loo_sensitivity <- function(data_long, feature, group_col = "Group",
     }
   }
   
+  # max_p_val stays 0 only when every LOO fold returned NA (all models failed).
+  # Return NA so the gate filter (!is.na) correctly excludes the marker.
   return(if (max_p_val == 0) NA else max_p_val)
 }
 
@@ -324,7 +326,7 @@ plot_lmm_trajectories <- function(data_long, feature, group_col = "Group",
   
   sub_title <- "Patient trajectories over time"
   if (!is.null(p_val)) {
-    metric_name <- if (p_val < 0.05 && p_val > 0.0000) "FDR/P-Value" else "Interaction P-Value"
+    metric_name <- if (p_val < 0.05) "FDR" else "Interaction P-Value"
     sub_title <- sprintf("%s: %.4f", metric_name, p_val)
   }
   

@@ -206,7 +206,7 @@ if (lmm_robust$n_robust == 0) {
   X_main <- X[, seq_len(ml_matrix$n_main), drop = FALSE]
 
   message("\n[ML] Running univariate AUC analysis (parameter-free)...")
-  uni_auc_df <- run_univariate_loo_auc(X_main, y, res_glmnet$positive_label)
+  uni_auc_df <- run_univariate_auc(X_main, y, res_glmnet$positive_label)
   message(sprintf("   [Univariate AUC] %s",
                   paste(sprintf("%s=%.3f", uni_auc_df$Marker, uni_auc_df$AUC),
                         collapse = " | ")))
@@ -405,10 +405,9 @@ if (lmm_robust$n_robust == 0) {
     ),
     scaling_note = paste(
       "Z-scores computed globally in Step 01 (deterministic centering, not a learned parameter).",
-      "Per-fold re-centering on training statistics is applied inside the SVM-RBF inner loop;",
-      "the upstream global z-scoring is therefore an affine transformation that cancels out.",
-      "Verified empirically (diag_11): refitting the classifier with strict per-fold z-scoring",
-      "from the raw transformed input yields the identical AUC (DeLong p=1.0).",
+      "For linear classifiers, global z-scoring is an affine transformation that cancels out;",
+      "for SVM-RBF, leakage potential was ruled out empirically (diag_11): refitting with strict",
+      "per-fold z-scoring from raw transformed input yields identical AUC (DeLong p=1.0).",
       "Feature gate derived from longitudinal data (Step 04) — disjoint from classifier training data.",
       if (!is.null(nested_validation))
         sprintf("Leakage further quantified: fully-nested LOO validation yielded AUC=%.3f [%.3f-%.3f] with %d%% gate stability for primary marker (see nested_loocv_validation).",
@@ -493,7 +492,7 @@ if (lmm_robust$n_robust == 0) {
     warning("[ML] jsonlite unavailable — metrics saved as RDS.")
   }
 
-  # 10. Export Excel Report
+  # 12. Export Excel Report
   # ------------------------------------------------------------------------------
   pos_lbl <- res_glmnet$positive_label
   neg_lbl <- setdiff(levels(res_glmnet$y_true), pos_lbl)

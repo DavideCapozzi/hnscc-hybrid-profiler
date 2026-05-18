@@ -5,10 +5,11 @@
 # ==============================================================================
 
 #' @title Detect Multivariate Outliers (PCA-based Mahalanobis)
-#' @description 
-#' Identifies outliers within specific groups using Robust Mahalanobis distance 
-#' calculated on the first Principal Components (PCs).
-#' 
+#' @description
+#' Identifies outliers within specific groups using Mahalanobis distance
+#' calculated on the first Principal Components (PCs). Uses classical (non-robust)
+#' sample covariance; suitable for identifying gross outliers in low-n clinical data.
+#'
 #' @param mat Numeric matrix (Samples x Markers).
 #' @param groups Vector of group labels corresponding to rows of mat.
 #' @param conf_level Confidence level for Chi-squared cutoff (default 0.99).

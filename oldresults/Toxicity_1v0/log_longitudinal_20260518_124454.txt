@@ -1,0 +1,69 @@
+=== LONGITUDINAL PIPELINE STARTED: 2026-05-18 12:44:54.71386 ===
+>>> RUNNING PHASE 1: JOINT DATA PROCESSING <<<
+
+
+=== PIPELINE STEP 1: INGESTION + HYBRID QC + TRANSFORM ===
+
+[Data] Matrix initialized: 129 Samples x 48 Hybrid Markers
+
+[QC] Executing Split Quality Control Strategy...
+
+   [QC-A] Enforcing Missingness Tolerances (Dual Domain Thresholds)...
+
+[QC] Running Hybrid Quality Control...
+
+   [QC] Dropping 5 patients with >40% total missingness.
+
+   [QC] Dropping 1 markers due to domain-specific missingness thresholds.
+
+   [QC] Final Dimensions: 124 Samples x 47 Markers
+
+[QC] Final Matrix Dimensions: 124 Samples x 47 Markers
+
+[Transform] Executing Final Hybrid Transformation (Mode: fast)...
+
+
+[Transform] Starting Hybrid Strategy (fast mode)...
+
+   [Transform] Processed 42 FACS markers (Method: logit).
+
+   [Transform] Processed 5 Soluble markers (Method: log2(x+1)).
+
+[IO] QC Report saved to: results/Toxicity_1v0/01_data_processing/QC_Filtering_Report_Toxicity_1v0_longitudinal.xlsx
+
+   [Output] Serialized data objects saved: data_processed_Toxicity_1v0_longitudinal.rds
+
+=== STEP 1 COMPLETE ===
+
+
+
+>>> RUNNING PHASE 4: LONGITUDINAL LMM ANALYSIS <<<
+
+
+=== PIPELINE STEP 4: LONGITUDINAL ANALYSIS (LMM) ===
+
+[Data] Loading Joint Pharmacodynamic Dataset: data_processed_Toxicity_1v0_longitudinal.rds
+
+   [Data] Longitudinal dimensions established: 124 matrix observations (T0: 73, T1: 51)
+
+
+[Stats] Initiating Linear Mixed Models (LMM) for longitudinal variance extraction...
+
+
+[Stats] LMM integration successful. Identified 2 raw significant markers, 0 survive FDR adjustment.
+
+   [Output] Mathematical models matrix saved: Longitudinal_LMM_Report_Toxicity_1v0.xlsx
+
+
+[Viz] Generating Patient Trajectory vectors...
+
+   [Viz] Null set for FDR boundaries. Defaulting plot limits to top 4 absolute P-values.
+
+   [Output] Temporal trajectory visualizations exported: Trajectories_LMM_Toxicity_1v0.pdf
+
+=== STEP 4 COMPLETE ===
+
+
+
+[SUCCESS] Longitudinal Pipeline completed for: Toxicity_1v0
+

@@ -1,0 +1,65 @@
+=== MACHINE LEARNING PIPELINE STARTED: 2026-05-13 15:17:24.177352 ===
+>>> RUNNING PHASE 6: MACHINE LEARNING CLASSIFICATION <<<
+
+
+=== PIPELINE STEP 6: MACHINE LEARNING CLASSIFICATION ===
+
+   [ML] 3 LOO-robust marker(s) selected for ML feature gate:
+
+         -> KI67NAIVE  (FDR=0.0134 | LOO_max_p=0.0015)
+
+         -> CD28KI67  (FDR=0.0134 | LOO_max_p=0.0016)
+
+         -> KI67CD4  (FDR=0.0346 | LOO_max_p=0.0053)
+
+   [ML] Collinearity filter (|r| > 0.85): removed CD28KI67 (kept KI67NAIVE, KI67CD4)
+
+   [ML] Feature matrix: 2 main effects + 1 interaction term(s) = 3 total
+
+[ML] Input: 70 samples x 3 features (main: 2) | Classes: SD_PD=40, RP=30
+
+
+[ML] Running Nested-LOOCV: Elastic Net Logistic Regression...
+
+   [Elastic Net] Outer LOO: 70 folds | Inner CV: 5 folds | alpha grid: {0, 0.5, 1}
+
+   [Elastic Net] AUC=0.466 [0.322–0.610] | BalAcc=0.567 | BER=0.433 | Sens=0.233 | Spec=0.900
+
+
+[ML] Running Nested-LOOCV: SVM with RBF Kernel...
+
+   [SVM-RBF] Outer LOO: 70 folds | Inner CV: 5 folds | Grid: C(5) x gamma(4)
+
+   [SVM-RBF]     AUC=0.694 [0.565–0.824] | BalAcc=0.721 | BER=0.279 | Sens=0.667 | Spec=0.775
+
+
+[ML] Primary method designated: SVM-RBF
+
+
+[ML] Running permutation AUC test (n_perm=2000)...
+
+   [Perm] Elastic Net p=0.6847 | SVM-RBF p=0.0045
+
+
+[ML] Running univariate AUC analysis (parameter-free)...
+
+   [Univariate AUC] KI67NAIVE=0.654 | KI67CD4=0.634
+
+
+[ML] Running univariate LOO-threshold classification...
+
+   [LOO Threshold] KI67NAIVE BalAcc=0.637 | KI67CD4 BalAcc=0.671
+
+   [Output] ML metrics JSON saved: Machine_Metrics_ML_BestResponse_2v3_4.json
+
+   [Output] Classification report saved: ML_Classification_Report_BestResponse_2v3_4.xlsx
+
+
+[ML] Summary — BestResponse_2v3_4 | Primary: SVM-RBF | AUC(EN)=0.466 | AUC(SVM)=0.694 | Perm p(SVM)=0.0045
+
+=== STEP 6 COMPLETE ===
+
+
+
+[SUCCESS] Machine Learning Pipeline completed for: BestResponse_2v3_4
+

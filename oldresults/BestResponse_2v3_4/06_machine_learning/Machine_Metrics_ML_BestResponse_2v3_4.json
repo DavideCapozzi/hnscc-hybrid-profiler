@@ -1,0 +1,241 @@
+{
+  "project_name": "BestResponse_2v3_4",
+  "clinical_target": "Best_response_rate_RC_1_RP_2_SD_3_PD_4",
+  "model_type": "Hybrid Two-Step Nested-LOOCV",
+  "n_samples": 70,
+  "n_features_main": 2,
+  "n_features_total": 2,
+  "include_interactions": false,
+  "robust_markers": [
+    "KI67NAIVE",
+    "CD28KI67",
+    "KI67CD4"
+  ],
+  "primary_method": "SVM-RBF",
+  "elastic_net": {
+    "method": "Elastic Net Logistic Regression (Nested-LOOCV)",
+    "metrics": {
+      "auc": 0.4983,
+      "auc_ci": [0.3583, 0.4983, 0.6384],
+      "balanced_accuracy": 0.5708,
+      "ber": 0.4292,
+      "sensitivity": 0.8667,
+      "specificity": 0.275,
+      "threshold": 0.4025
+    }
+  },
+  "svm_rbf": {
+    "method": "SVM with RBF Kernel (Nested-LOOCV)",
+    "metrics": {
+      "auc": 0.7158,
+      "auc_ci": [0.5924, 0.7158, 0.8393],
+      "balanced_accuracy": 0.7375,
+      "ber": 0.2625,
+      "sensitivity": 0.8,
+      "specificity": 0.675,
+      "threshold": 0.3818
+    }
+  },
+  "scaling_note": "Z-scores computed globally in Step 01 (deterministic centering, not a learned parameter). Per-fold re-centering on training statistics is applied inside the SVM-RBF inner loop; the upstream global z-scoring is therefore an affine transformation that cancels out. Verified empirically (diag_11): refitting the classifier with strict per-fold z-scoring from the raw transformed input yields the identical AUC (DeLong p=1.0). Feature gate derived from longitudinal data (Step 04) — disjoint from classifier training data. Leakage further quantified: fully-nested LOO validation yielded AUC=0.754 [0.637-0.872] with 100% gate stability for primary marker (see nested_loocv_validation).",
+  "permutation_test": {
+    "elastic_net": {
+      "observed_auc": 0.4983,
+      "p_value": 0.5172,
+      "n_perm": 2000
+    },
+    "svm_rbf": {
+      "observed_auc": 0.7158,
+      "p_value": 0.001,
+      "n_perm": 2000
+    },
+    "n_perm": 2000
+  },
+  "univariate_auc": [
+    {
+      "Marker": "KI67NAIVE",
+      "AUC": 0.6538,
+      "CI_Lower": 0.5217,
+      "CI_Upper": 0.7858
+    },
+    {
+      "Marker": "KI67CD4",
+      "AUC": 0.6338,
+      "CI_Lower": 0.5003,
+      "CI_Upper": 0.7672
+    }
+  ],
+  "univariate_loo_threshold": [
+    {
+      "Marker": "KI67NAIVE",
+      "AUC": 0.6375,
+      "Balanced_Accuracy": 0.6375,
+      "BER": 0.3625,
+      "Sensitivity": 0.4,
+      "Specificity": 0.875
+    },
+    {
+      "Marker": "KI67CD4",
+      "AUC": 0.6708,
+      "Balanced_Accuracy": 0.6708,
+      "BER": 0.3292,
+      "Sensitivity": 0.7667,
+      "Specificity": 0.575
+    }
+  ],
+  "clinical_benchmark": {
+    "label": "PD-L1 expression (%)",
+    "column": "PD_L1",
+    "n_valid": 60,
+    "n_na": 10,
+    "auc": 0.5943,
+    "auc_ci": [
+      0.4522,
+      0.5943,
+      0.7363
+    ],
+    "primary_auc_on_subset": 0.734,
+    "delong_p": 0.151,
+    "note": "Primary model AUC=0.734 vs PD-L1 expression (%) AUC=0.594 on 60/70 cases with non-NA values (DeLong p=0.1510). Test may be underpowered."
+  },
+  "benchmark_stratified": {
+    "label": "PD-L1 expression (%)",
+    "column": "PD_L1",
+    "n_valid": 60,
+    "bin_breaks": [0.99, 49.99],
+    "bin_labels": ["neg(<1%)", "low(1-49%)", "high(>=50%)"],
+    "bin_crosstab": [
+      {
+        "Bin": "neg(<1%)",
+        "N": 23,
+        "N_Responder": 7,
+        "Response_Rate": 30.4
+      },
+      {
+        "Bin": "low(1-49%)",
+        "N": 21,
+        "N_Responder": 11,
+        "Response_Rate": 52.4
+      },
+      {
+        "Bin": "high(>=50%)",
+        "N": 16,
+        "N_Responder": 9,
+        "Response_Rate": 56.2
+      }
+    ],
+    "fisher_3bins_p": 0.222,
+    "ca_trend_p": 0.0939,
+    "binary_cut": {
+      "threshold": 50,
+      "n": 60,
+      "n_high": 16,
+      "n_low": 44,
+      "balanced_accuracy": 0.5606,
+      "sensitivity": 0.3333,
+      "specificity": 0.7879,
+      "fisher_p": 0.3819,
+      "odds_ratio": 1.8377
+    },
+    "subgroup_low": {
+      "n": 44,
+      "n_responder": 18,
+      "auc": 0.6838,
+      "auc_ci": [0.5218, 0.6838, 0.8457],
+      "balanced_accuracy": 0.7244,
+      "sensitivity": 0.8333,
+      "specificity": 0.6154,
+      "note": "SVM-RBF nested-LOOCV on KI67 gate, PD-L1 expression (%) < 50 subgroup."
+    },
+    "subgroup_high": {
+      "n": 16,
+      "n_responder": 9,
+      "auc": "NA",
+      "auc_ci": ["NA", "NA", "NA"],
+      "note": "n=16 below min_subgroup_n=20 — not fitted."
+    },
+    "note": "Stratified analysis on n=60 valid PD-L1 expression (%) values. Categorical bins at 0.99/49.99. Binary clinical cut at 50. Subgroup SVM uses LMM gate features."
+  },
+  "benchmark_combined": {
+    "label": "PD-L1 expression (%)",
+    "column": "PD_L1",
+    "n_valid": 60,
+    "logistic": {
+      "auc_benchmark": 0.3558,
+      "auc_benchmark_ci": [
+        0.2025,
+        0.3558,
+        0.5091
+      ],
+      "auc_combined": 0.6453,
+      "auc_combined_ci": [
+        0.5044,
+        0.6453,
+        0.7863
+      ],
+      "delta_auc": 0.2896,
+      "delong_p": 0.0031
+    },
+    "information_gain": {
+      "IDI": 0.1272,
+      "IDI_event": 0.0716,
+      "IDI_nonevent": 0.0556,
+      "IDI_95CI": [
+        0.0339,
+        0.2206
+      ],
+      "IDI_bootstrap_p": 0.004,
+      "cNRI": 0.4579,
+      "cNRI_event": 0.1852,
+      "cNRI_nonevent": 0.2727,
+      "cNRI_95CI": [
+        -0.0278,
+        0.926
+      ],
+      "cNRI_bootstrap_p": 0.084,
+      "n_boot": 1000
+    },
+    "svm_comparison": {
+      "auc_features_only": 0.7351,
+      "auc_features_with_bench": 0.4747,
+      "delta_auc": -0.2604,
+      "delong_p": 0.0004,
+      "note": "Same n=60 subset. Negative delta means adding PD-L1 expression (%) to the SVM-RBF kernel inputs degrades AUC — interpretable as the benchmark contributing noise relative to the LMM gate."
+    },
+    "note": "Logistic LOOCV: PD-L1 expression (%) alone vs PD-L1 expression (%) + 2 gate marker(s). IDI/cNRI estimated with patient-level bootstrap (B=1000)."
+  },
+  "nested_loocv_validation": {
+    "method": "SVM-RBF Fully-Nested LOO (LMM gate re-selected inside each outer fold)",
+    "auc": 0.7542,
+    "auc_ci": [
+      0.6366,
+      0.7542,
+      0.8718
+    ],
+    "balanced_accuracy": 0.7542,
+    "ber": 0.2458,
+    "sensitivity": 0.8333,
+    "specificity": 0.675,
+    "gate_stability": [
+      {
+        "Marker": "KI67NAIVE",
+        "Folds_Selected": 70,
+        "Total_Folds": 70,
+        "Pct": 100
+      },
+      {
+        "Marker": "KI67CD4",
+        "Folds_Selected": 67,
+        "Total_Folds": 70,
+        "Pct": 95.7
+      },
+      {
+        "Marker": "CD28KI67",
+        "Folds_Selected": 3,
+        "Total_Folds": 70,
+        "Pct": 4.3
+      }
+    ],
+    "n_empty_folds": 0,
+    "note": "Fully-nested validation: LMM feature selection repeated within each outer LOO fold on n-1 patients. AUC=0.754 vs fixed-gate AUC=0.716 (delta=0.038). Primary marker gate stability: 100%."
+  }
+}

@@ -1,0 +1,177 @@
+{
+  "project_name": "Comorbidity_1v0",
+  "clinical_target": "comorbidità_No_0_Si_1",
+  "model_type": "sPLS-DA",
+  "validation_method": "Mfold",
+  "cv_folds": 5,
+  "cv_repeats": 50,
+  "performance_per_component": [
+    {
+      "Component": 1,
+      "Overall_BER": 0.3785,
+      "Validation_Method": "Mfold",
+      "keepX": 15
+    },
+    {
+      "Component": 2,
+      "Overall_BER": 0.3799,
+      "Validation_Method": "Mfold",
+      "keepX": 5
+    }
+  ],
+  "top_drivers": [
+    {
+      "Domain": "Soluble",
+      "Marker": "NOX2_pg/mL",
+      "Importance": 0.472,
+      "Comp1_Weight": -0.472,
+      "Comp2_Weight": 0.2426,
+      "Direction": "Negative_Assoc",
+      "_row": "NOX2_pg/mL"
+    },
+    {
+      "Domain": "FACS",
+      "Marker": "PD1EMRA",
+      "Importance": 0.4137,
+      "Comp1_Weight": -0.4137,
+      "Comp2_Weight": 0,
+      "Direction": "Negative_Assoc",
+      "_row": "PD1EMRA"
+    },
+    {
+      "Domain": "FACS",
+      "Marker": "CD28EMRA",
+      "Importance": 0.345,
+      "Comp1_Weight": -0.345,
+      "Comp2_Weight": 0,
+      "Direction": "Negative_Assoc",
+      "_row": "CD28EMRA"
+    },
+    {
+      "Domain": "FACS",
+      "Marker": "NAIVE",
+      "Importance": 0.3415,
+      "Comp1_Weight": 0.3415,
+      "Comp2_Weight": 0,
+      "Direction": "Positive_Assoc",
+      "_row": "NAIVE"
+    },
+    {
+      "Domain": "FACS",
+      "Marker": "PD1CD4",
+      "Importance": 0.3047,
+      "Comp1_Weight": -0.3047,
+      "Comp2_Weight": 0,
+      "Direction": "Negative_Assoc",
+      "_row": "PD1CD4"
+    },
+    {
+      "Domain": "FACS",
+      "Marker": "CD28NAIVE",
+      "Importance": 0.2995,
+      "Comp1_Weight": 0.2995,
+      "Comp2_Weight": 0,
+      "Direction": "Positive_Assoc",
+      "_row": "CD28NAIVE"
+    },
+    {
+      "Domain": "FACS",
+      "Marker": "PD1EFF",
+      "Importance": 0.2802,
+      "Comp1_Weight": -0.2802,
+      "Comp2_Weight": 0,
+      "Direction": "Negative_Assoc",
+      "_row": "PD1EFF"
+    },
+    {
+      "Domain": "FACS",
+      "Marker": "PD1",
+      "Importance": 0.2206,
+      "Comp1_Weight": -0.2206,
+      "Comp2_Weight": 0,
+      "Direction": "Negative_Assoc",
+      "_row": "PD1"
+    },
+    {
+      "Domain": "FACS",
+      "Marker": "EM",
+      "Importance": 0.1548,
+      "Comp1_Weight": -0.1548,
+      "Comp2_Weight": 0,
+      "Direction": "Negative_Assoc",
+      "_row": "EM"
+    },
+    {
+      "Domain": "FACS",
+      "Marker": "CD3tot",
+      "Importance": 0.1475,
+      "Comp1_Weight": -0.1475,
+      "Comp2_Weight": 0.0573,
+      "Direction": "Negative_Assoc",
+      "_row": "CD3tot"
+    },
+    {
+      "Domain": "FACS",
+      "Marker": "EFF",
+      "Importance": 0.0693,
+      "Comp1_Weight": -0.0693,
+      "Comp2_Weight": 0,
+      "Direction": "Negative_Assoc",
+      "_row": "EFF"
+    },
+    {
+      "Domain": "FACS",
+      "Marker": "CD4tot",
+      "Importance": 0.0624,
+      "Comp1_Weight": 0.0624,
+      "Comp2_Weight": 0,
+      "Direction": "Positive_Assoc",
+      "_row": "CD4tot"
+    },
+    {
+      "Domain": "FACS",
+      "Marker": "CD28CD8",
+      "Importance": 0.0492,
+      "Comp1_Weight": 0.0492,
+      "Comp2_Weight": -0.1385,
+      "Direction": "Positive_Assoc",
+      "_row": "CD28CD8"
+    },
+    {
+      "Domain": "FACS",
+      "Marker": "CD28EFF",
+      "Importance": 0.0446,
+      "Comp1_Weight": -0.0446,
+      "Comp2_Weight": 0,
+      "Direction": "Negative_Assoc",
+      "_row": "CD28EFF"
+    },
+    {
+      "Domain": "FACS",
+      "Marker": "PD1CD8",
+      "Importance": 0.0431,
+      "Comp1_Weight": -0.0431,
+      "Comp2_Weight": 0,
+      "Direction": "Negative_Assoc",
+      "_row": "PD1CD8"
+    },
+    {
+      "Domain": "FACS",
+      "Marker": "CD28CD4",
+      "Importance": 0,
+      "Comp1_Weight": 0,
+      "Comp2_Weight": 0.8385,
+      "Direction": "Negative_Assoc",
+      "_row": "CD28CD4"
+    },
+    {
+      "Domain": "FACS",
+      "Marker": "CD8tot",
+      "Importance": 0,
+      "Comp1_Weight": 0,
+      "Comp2_Weight": -0.4643,
+      "Direction": "Negative_Assoc",
+      "_row": "CD8tot"
+    }
+  ]
+}

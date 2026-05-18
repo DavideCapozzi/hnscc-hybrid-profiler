@@ -1,0 +1,64 @@
+=== MACHINE LEARNING PIPELINE STARTED: 2026-05-13 14:16:28.544755 ===
+>>> RUNNING PHASE 6: MACHINE LEARNING CLASSIFICATION <<<
+
+
+=== PIPELINE STEP 6: MACHINE LEARNING CLASSIFICATION ===
+
+   [ML] 3 LOO-robust marker(s) selected for ML feature gate:
+
+         -> KI67NAIVE  (FDR=0.0134 | LOO_max_p=0.0015)
+
+         -> CD28KI67  (FDR=0.0134 | LOO_max_p=0.0016)
+
+         -> KI67CD4  (FDR=0.0346 | LOO_max_p=0.0053)
+
+   [ML] Feature matrix: 3 main effects + 3 interaction term(s) = 6 total
+
+[ML] Input: 70 samples x 6 features (main: 3) | Classes: SD_PD=40, RP=30
+
+
+[ML] Running Nested-LOOCV: Elastic Net Logistic Regression...
+
+   [Elastic Net] Outer LOO: 70 folds | Inner CV: 5 folds | alpha grid: {0, 0.5, 1}
+
+   [Elastic Net] AUC=0.548 [0.408–0.689] | BalAcc=0.571 | BER=0.429 | Sens=0.467 | Spec=0.675
+
+
+[ML] Running Nested-LOOCV: SVM with RBF Kernel...
+
+   [SVM-RBF] Outer LOO: 70 folds | Inner CV: 5 folds | Grid: C(5) x gamma(4)
+
+   [SVM-RBF]     AUC=0.645 [0.515–0.775] | BalAcc=0.621 | BER=0.379 | Sens=0.967 | Spec=0.275
+
+
+[ML] Primary method designated: SVM-RBF
+
+WARNING: [ML] Sign flip detected in Elastic Net coefficients for: KI67NAIVE, KI67CD4, KI67NAIVE_x_CD28KI67, CD28KI67_x_KI67CD4 — interpret with caution.
+
+[ML] Running permutation AUC test (n_perm=2000)...
+
+   [Perm] Elastic Net p=0.2579 | SVM-RBF p=0.0220
+
+
+[ML] Running univariate AUC analysis (parameter-free)...
+
+   [Univariate AUC] KI67NAIVE=0.654 | CD28KI67=0.641 | KI67CD4=0.634
+
+
+[ML] Running univariate LOO-threshold classification...
+
+   [LOO Threshold] KI67NAIVE BalAcc=0.637 | CD28KI67 BalAcc=0.500 | KI67CD4 BalAcc=0.671
+
+   [Output] ML metrics JSON saved: Machine_Metrics_ML_BestResponse_2v3_4.json
+
+   [Output] Classification report saved: ML_Classification_Report_BestResponse_2v3_4.xlsx
+
+
+[ML] Summary — BestResponse_2v3_4 | Primary: SVM-RBF | AUC(EN)=0.548 | AUC(SVM)=0.645 | Perm p(SVM)=0.0220
+
+=== STEP 6 COMPLETE ===
+
+
+
+[SUCCESS] Machine Learning Pipeline completed for: BestResponse_2v3_4
+
