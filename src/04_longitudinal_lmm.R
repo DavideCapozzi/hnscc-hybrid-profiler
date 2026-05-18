@@ -166,7 +166,54 @@ if (!is.null(sensitivity_covariates) && length(sensitivity_covariates) > 0) {
   }
 }
 
-# 6. Output Serialization
+# 6. Bootstrap CI on FDR-significant Interaction Betas (optional, config-driven)
+# Patient-level cluster bootstrap that re-runs the LMM panel + BH-FDR on each
+# resample. Reports bootstrap 95% CI and the fraction of resamples in which
+# each target marker still survives FDR < fdr_threshold.
+# ------------------------------------------------------------------------------
+bootstrap_results <- NULL
+boot_cfg <- config$lmm_bootstrap
+
+if (!is.null(boot_cfg) && isTRUE(boot_cfg$enabled) && n_sig_fdr > 0) {
+  n_boot_iter <- if (!is.null(boot_cfg$n_boot)) as.integer(boot_cfg$n_boot) else 500L
+  boot_seed   <- if (!is.null(boot_cfg$seed))   as.integer(boot_cfg$seed)   else 2026L
+
+  target_markers <- df_results$Marker[!is.na(df_results$FDR_Interaction) &
+                                        df_results$FDR_Interaction < 0.05]
+  message(sprintf("\n[Stats] Running patient-level cluster bootstrap (n_boot=%d) on %d FDR-significant marker(s)...",
+                  n_boot_iter, length(target_markers)))
+
+  bootstrap_results <- tryCatch(
+    run_lmm_bootstrap_ci(
+      data_long      = df_model,
+      all_markers    = DATA$hybrid_markers,
+      target_markers = target_markers,
+      group_col      = "Group",
+      time_col       = "Timepoint",
+      id_col         = "Patient_ID",
+      covariates     = covariates_list,
+      n_boot         = n_boot_iter,
+      fdr_threshold  = 0.05,
+      seed           = boot_seed,
+      progress_message = TRUE
+    ),
+    error = function(e) {
+      warning(sprintf("[Stats] LMM bootstrap failed: %s", e$message))
+      NULL
+    }
+  )
+
+  if (!is.null(bootstrap_results) && nrow(bootstrap_results$summary_df) > 0) {
+    for (i in seq_len(nrow(bootstrap_results$summary_df))) {
+      r <- bootstrap_results$summary_df[i, ]
+      message(sprintf("      -> %s: median=%.3f [%.3f, %.3f]  %%FDR<0.05=%.1f%%  (n_valid=%d)",
+                      r$Marker, r$Median_Beta_Boot, r$CI_Lower_2.5, r$CI_Upper_97.5,
+                      r$Pct_FDR_Significant, r$N_Valid_Iterations))
+    }
+  }
+}
+
+# 7. Output Serialization
 # ------------------------------------------------------------------------------
 json_path <- file.path(out_dir, sprintf("Machine_Metrics_LMM_%s.json", config$project_name))
 machine_output <- list(
@@ -177,7 +224,20 @@ machine_output <- list(
   n_patients = length(unique(df_model$Patient_ID)),
   significant_features_fdr = n_sig_fdr,
   full_results = df_results,
-  covariate_sensitivity = if (!is.null(sensitivity_results)) sensitivity_results else NULL
+  covariate_sensitivity = if (!is.null(sensitivity_results)) sensitivity_results else NULL,
+  bootstrap_ci = if (!is.null(bootstrap_results)) {
+    list(
+      method        = "Patient-level cluster bootstrap with per-iteration BH-FDR re-computation",
+      n_boot        = bootstrap_results$n_boot,
+      seed          = bootstrap_results$seed,
+      fdr_threshold = bootstrap_results$fdr_threshold,
+      summary       = bootstrap_results$summary_df,
+      note          = sprintf(
+        "Cluster bootstrap (B=%d) resamples patient IDs with replacement, preserving T0/T1 pairing within patient. Beta CI excludes 0 + %%FDR<0.05 reported per marker.",
+        bootstrap_results$n_boot
+      )
+    )
+  } else NULL
 )
 
 if (requireNamespace("jsonlite", quietly = TRUE)) {
@@ -200,6 +260,11 @@ if (length(p_col_idx) > 0) {
 if (!is.null(sensitivity_results) && nrow(sensitivity_results) > 0) {
   openxlsx::addWorksheet(wb, "LMM_Covariate_Sensitivity")
   openxlsx::writeData(wb, "LMM_Covariate_Sensitivity", sensitivity_results)
+}
+
+if (!is.null(bootstrap_results) && nrow(bootstrap_results$summary_df) > 0) {
+  openxlsx::addWorksheet(wb, "LMM_Bootstrap_CI")
+  openxlsx::writeData(wb, "LMM_Bootstrap_CI", bootstrap_results$summary_df)
 }
 
 openxlsx::saveWorkbook(wb, excel_path, overwrite = TRUE)
@@ -250,6 +315,23 @@ if (nrow(top_df) > 0) {
   
   dev.off()
   message(sprintf("   [Output] Temporal trajectory visualizations exported: %s", basename(traj_path)))
+}
+
+# Forest plot: bootstrap 95% CI of interaction betas (only if bootstrap ran)
+if (!is.null(bootstrap_results) && nrow(bootstrap_results$summary_df) > 0) {
+  forest_path <- file.path(out_dir, sprintf("Forest_Bootstrap_LMM_%s.pdf", config$project_name))
+  pdf(forest_path, width = 9, height = max(3, 1.0 + 0.5 * nrow(bootstrap_results$summary_df)))
+  tryCatch({
+    p_forest <- plot_lmm_forest(
+      boot_summary = bootstrap_results$summary_df,
+      observed_df  = df_results[, c("Marker", "Estimate_Interaction")],
+      title        = sprintf("Bootstrap 95%% CI of LMM Betas (B=%d) - %s",
+                             bootstrap_results$n_boot, config$project_name)
+    )
+    if (!is.null(p_forest)) print(p_forest)
+  }, error = function(e) warning(sprintf("Forest plot failed: %s", e$message)))
+  dev.off()
+  message(sprintf("   [Output] Bootstrap forest plot exported: %s", basename(forest_path)))
 }
 
 message("=== STEP 4 COMPLETE ===\n")

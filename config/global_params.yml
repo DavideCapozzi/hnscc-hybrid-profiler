@@ -125,6 +125,16 @@ transformation:
 stats:
   seed: 2026
 
+# --- Longitudinal Bootstrap (Step 04, optional) ---
+# Patient-level cluster bootstrap of LMM interaction betas. Adds bootstrap
+# 95% CI + %FDR<0.05 to the JSON/Excel report and a forest plot PDF.
+# Computationally heavy: ~13 min for n_boot=500 on a 47-marker panel; set
+# n_boot lower for quick checks. Skipped when no FDR-significant markers.
+lmm_bootstrap:
+  enabled: true
+  n_boot: 500
+  seed: 2026
+
 # --- Multivariate Analysis (sPLS-DA) ---
 multivariate:
   n_comp: 2           

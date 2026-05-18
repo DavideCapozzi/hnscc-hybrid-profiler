@@ -946,6 +946,399 @@ run_clinical_benchmark <- function(DATA, primary_probs, y_primary, positive_labe
 }
 
 
+#' @title Benchmark-Stratified Subgroup Analysis
+#' @description
+#' Stratifies the cohort by clinical-standard categorical bins of the benchmark
+#' biomarker (e.g. PD-L1 TPS at <1%, 1-49%, >=50%) and quantifies:
+#'   - Frequency table of bins vs outcome (Fisher exact + Cochran-Armitage trend)
+#'   - Binary cut performance ("benchmark high" vs "benchmark low") as classifier
+#'   - Primary-model AUC restricted to the "benchmark low" subgroup, which is
+#'     the clinically actionable population where the standard biomarker is
+#'     insufficient for treatment decision
+#'
+#' @param DATA Step 01 standard DATA object (with metadata$Patient_ID).
+#' @param X_main Numeric matrix of main-effect features (n_patients x n_main).
+#' @param y Factor outcome aligned with X_main.
+#' @param positive_label Positive class label.
+#' @param input_file Path to raw clinical Excel (T0) with benchmark column.
+#' @param benchmark_col Column name in raw Excel.
+#' @param benchmark_label Optional human-readable label.
+#' @param bin_breaks Numeric vector of bin breakpoints (default c(0.99, 49.99)
+#'   for PD-L1 TPS clinical strata <1%, 1-49%, >=50%).
+#' @param bin_labels Character vector of bin labels (default
+#'   c("neg(<1%)", "low(1-49%)", "high(>=50%)")).
+#' @param high_threshold Numeric. Cutoff defining "benchmark high" for the
+#'   binary clinical-cut classifier (default 50).
+#' @param C_grid,gamma_grid,inner_folds,seed SVM tuning hyperparameters.
+#' @param min_subgroup_n Minimum patients per subgroup to attempt SVM fit
+#'   (default 20). Smaller subgroups are reported with raw counts only.
+#' @return A list with crosstab, fisher_p, ca_trend_p, binary_cut metrics, and
+#'   per-subgroup nested-LOOCV SVM AUC (when subgroup_n >= min_subgroup_n).
+#'   Returns NULL if benchmark column is unavailable.
+#' @export
+run_pdl1_stratified <- function(DATA, X_main, y, positive_label,
+                                input_file, benchmark_col, benchmark_label = NULL,
+                                bin_breaks     = c(0.99, 49.99),
+                                bin_labels     = c("neg(<1%)", "low(1-49%)", "high(>=50%)"),
+                                high_threshold = 50,
+                                C_grid         = c(0.01, 0.1, 1, 10, 100),
+                                gamma_grid     = c(0.01, 0.1, 1, 10),
+                                inner_folds    = 5L,
+                                seed           = 2026,
+                                min_subgroup_n = 20L) {
+  if (!requireNamespace("readxl", quietly = TRUE)) return(NULL)
+  if (!requireNamespace("dplyr",  quietly = TRUE)) return(NULL)
+  if (!requireNamespace("pROC",   quietly = TRUE)) return(NULL)
+
+  if (is.null(benchmark_label)) benchmark_label <- benchmark_col
+  if (!file.exists(input_file)) {
+    message(sprintf("   [ML Stratified] Input file not found: %s", input_file))
+    return(NULL)
+  }
+
+  df_raw <- tryCatch(readxl::read_excel(input_file, sheet = 1),
+                     error = function(e) NULL)
+  if (is.null(df_raw) || !benchmark_col %in% names(df_raw)) {
+    message(sprintf("   [ML Stratified] Column '%s' not available — skipping.", benchmark_col))
+    return(NULL)
+  }
+
+  df_bench <- df_raw %>%
+    dplyr::select(Patient_ID, dplyr::all_of(benchmark_col)) %>%
+    dplyr::mutate(Patient_ID = as.character(Patient_ID))
+
+  df_meta <- DATA$metadata %>%
+    dplyr::mutate(Patient_ID = as.character(Patient_ID)) %>%
+    dplyr::left_join(df_bench, by = "Patient_ID")
+
+  bench_vals <- as.numeric(df_meta[[benchmark_col]])
+  n_valid <- sum(!is.na(bench_vals))
+  if (n_valid < min_subgroup_n) {
+    message(sprintf("   [ML Stratified] Insufficient valid cases (%d). Skipping.", n_valid))
+    return(NULL)
+  }
+
+  # ---- Categorical bins (3 levels) ----
+  bins <- cut(bench_vals,
+              breaks = c(-Inf, bin_breaks, Inf),
+              labels = bin_labels, include.lowest = TRUE)
+
+  y_chr  <- as.character(y)
+  pos    <- positive_label
+  neg    <- setdiff(unique(y_chr), pos)
+  tab3   <- table(bins, factor(y_chr, levels = c(neg, pos)), useNA = "no")
+  fish3  <- tryCatch(fisher.test(tab3)$p.value, error = function(e) NA_real_)
+
+  ca_p <- NA_real_
+  if (nrow(tab3) >= 2) {
+    rs <- rowSums(tab3)
+    if (all(rs > 0)) {
+      ca_x <- tab3[, pos]
+      ca_n <- rs
+      ca_p <- tryCatch(prop.trend.test(x = ca_x, n = ca_n)$p.value,
+                       error = function(e) NA_real_)
+    }
+  }
+
+  rr_per_bin <- as.numeric(prop.table(tab3, margin = 1)[, pos]) * 100
+  bin_summary <- data.frame(
+    Bin            = rownames(tab3),
+    N              = as.numeric(rowSums(tab3)),
+    N_Responder    = as.numeric(tab3[, pos]),
+    Response_Rate  = round(rr_per_bin, 1),
+    stringsAsFactors = FALSE
+  )
+
+  # ---- Binary cut (clinical threshold) as a classifier ----
+  high_mask <- !is.na(bench_vals) & bench_vals >= high_threshold
+  low_mask  <- !is.na(bench_vals) & bench_vals <  high_threshold
+  y_b <- y_chr[high_mask | low_mask]
+  pred_high <- ifelse(bench_vals[high_mask | low_mask] >= high_threshold, pos, neg)
+  sens_b <- mean(pred_high[y_b == pos] == pos)
+  spec_b <- mean(pred_high[y_b == neg] == neg)
+  bal_b  <- (sens_b + spec_b) / 2
+  tab2   <- table(factor(pred_high, levels = c(neg, pos)),
+                  factor(y_b, levels = c(neg, pos)))
+  fish2  <- tryCatch(fisher.test(tab2), error = function(e) NULL)
+  binary_cut <- list(
+    threshold         = high_threshold,
+    n                 = length(y_b),
+    n_high            = sum(high_mask),
+    n_low             = sum(low_mask),
+    balanced_accuracy = round(bal_b, 4),
+    sensitivity       = round(sens_b, 4),
+    specificity       = round(spec_b, 4),
+    fisher_p          = if (!is.null(fish2)) round(fish2$p.value, 4) else NA_real_,
+    odds_ratio        = if (!is.null(fish2)) round(as.numeric(fish2$estimate), 4) else NA_real_
+  )
+
+  # ---- Per-subgroup nested-LOOCV SVM on the LMM-gate features ----
+  run_subgroup_svm <- function(mask, label) {
+    n_s <- sum(mask)
+    if (n_s < min_subgroup_n) {
+      return(list(n = n_s,
+                  n_responder = sum(y[mask] == pos),
+                  auc = NA_real_, auc_ci = c(NA_real_, NA_real_, NA_real_),
+                  predicted_probs = NULL, y_true = NULL, benchmark_vals = NULL,
+                  note = sprintf("n=%d below min_subgroup_n=%d — not fitted.",
+                                 n_s, min_subgroup_n)))
+    }
+    y_sub <- y[mask]
+    if (length(unique(y_sub)) < 2 || min(table(y_sub)) < 3) {
+      return(list(n = n_s,
+                  n_responder = sum(y_sub == pos),
+                  auc = NA_real_, auc_ci = c(NA_real_, NA_real_, NA_real_),
+                  predicted_probs = NULL, y_true = NULL, benchmark_vals = NULL,
+                  note = "Degenerate class distribution — not fitted."))
+    }
+    X_sub <- X_main[mask, , drop = FALSE]
+    res <- run_nested_loocv_svm(
+      X = X_sub, y = factor(as.character(y_sub), levels = c(neg, pos)),
+      C_grid = C_grid, gamma_grid = gamma_grid,
+      inner_folds = inner_folds, seed = seed
+    )
+    metrics <- compute_classification_metrics(res$y_true, res$predicted_probs, pos)
+    list(
+      n           = n_s,
+      n_responder = sum(y_sub == pos),
+      auc         = round(metrics$auc, 4),
+      auc_ci      = round(metrics$auc_ci, 4),
+      balanced_accuracy = round(metrics$balanced_accuracy, 4),
+      sensitivity = round(metrics$sensitivity, 4),
+      specificity = round(metrics$specificity, 4),
+      predicted_probs = res$predicted_probs,
+      y_true          = as.character(res$y_true),
+      benchmark_vals  = as.numeric(bench_vals[mask]),
+      note            = sprintf("SVM-RBF nested-LOOCV on KI67 gate, %s subgroup.", label)
+    )
+  }
+
+  sub_low  <- run_subgroup_svm(low_mask,  sprintf("%s < %g", benchmark_label, high_threshold))
+  sub_high <- run_subgroup_svm(high_mask, sprintf("%s >= %g", benchmark_label, high_threshold))
+
+  list(
+    label              = benchmark_label,
+    column             = benchmark_col,
+    n_valid            = n_valid,
+    bin_breaks         = bin_breaks,
+    bin_labels         = bin_labels,
+    bin_crosstab       = bin_summary,
+    fisher_3bins_p     = round(fish3, 4),
+    ca_trend_p         = round(ca_p, 4),
+    binary_cut         = binary_cut,
+    subgroup_low       = sub_low,
+    subgroup_high      = sub_high,
+    note               = sprintf(
+      "Stratified analysis on n=%d valid %s values. Categorical bins at %s. Binary clinical cut at %g. Subgroup SVM uses LMM gate features.",
+      n_valid, benchmark_label,
+      paste(bin_breaks, collapse = "/"), high_threshold
+    )
+  )
+}
+
+
+#' @title Combined Benchmark + Model Information Gain (IDI/NRI)
+#' @description
+#' Quantifies how much the LMM-gate features add over a continuous clinical
+#' benchmark biomarker (e.g. PD-L1). Two complementary perspectives:
+#'   1. Logistic LOOCV: benchmark alone vs benchmark + main features. Computes
+#'      IDI (Pencina 2008) and continuous NRI with patient-level bootstrap CIs.
+#'   2. SVM-RBF nested-LOOCV: same-subset comparison of model-with-benchmark
+#'      vs model-without (informs whether the benchmark adds noise to the
+#'      non-linear classifier).
+#'
+#' @param DATA Step 01 DATA object (for metadata).
+#' @param X_main Numeric matrix of main-effect features (already z-scored at
+#'   Step 01) aligned with DATA$metadata$Patient_ID.
+#' @param y Factor outcome aligned with X_main.
+#' @param positive_label Positive class label.
+#' @param input_file Path to raw clinical Excel (T0).
+#' @param benchmark_col Column name in raw Excel.
+#' @param benchmark_label Optional label.
+#' @param n_boot Number of patient-level bootstrap iterations for IDI/cNRI CI.
+#' @param C_grid,gamma_grid,inner_folds SVM tuning.
+#' @param seed RNG seed.
+#' @return List with logistic, idi/nri, and SVM comparison. NULL if benchmark
+#'   unavailable.
+#' @export
+run_combined_benchmark_model <- function(DATA, X_main, y, positive_label,
+                                         input_file, benchmark_col,
+                                         benchmark_label = NULL,
+                                         n_boot          = 1000L,
+                                         C_grid          = c(0.01, 0.1, 1, 10, 100),
+                                         gamma_grid      = c(0.01, 0.1, 1, 10),
+                                         inner_folds     = 5L,
+                                         seed            = 2026) {
+  if (!requireNamespace("readxl", quietly = TRUE)) return(NULL)
+  if (!requireNamespace("dplyr",  quietly = TRUE)) return(NULL)
+  if (!requireNamespace("pROC",   quietly = TRUE)) return(NULL)
+
+  if (is.null(benchmark_label)) benchmark_label <- benchmark_col
+  if (!file.exists(input_file)) return(NULL)
+
+  df_raw <- tryCatch(readxl::read_excel(input_file, sheet = 1),
+                     error = function(e) NULL)
+  if (is.null(df_raw) || !benchmark_col %in% names(df_raw)) return(NULL)
+
+  df_bench <- df_raw %>%
+    dplyr::select(Patient_ID, dplyr::all_of(benchmark_col)) %>%
+    dplyr::mutate(Patient_ID = as.character(Patient_ID))
+  df_meta <- DATA$metadata %>%
+    dplyr::mutate(Patient_ID = as.character(Patient_ID)) %>%
+    dplyr::left_join(df_bench, by = "Patient_ID")
+
+  bench_vals <- as.numeric(df_meta[[benchmark_col]])
+  valid_mask <- !is.na(bench_vals)
+  if (sum(valid_mask) < 20) return(NULL)
+
+  pos <- positive_label
+  neg <- setdiff(levels(y), pos)
+  y_sub <- y[valid_mask]
+  y_bin <- as.integer(y_sub == pos)
+  x_bench <- bench_vals[valid_mask]
+  X_sub  <- X_main[valid_mask, , drop = FALSE]
+
+  # ---- Logistic LOOCV: benchmark alone vs benchmark + main features ----
+  df_lr <- data.frame(y = y_bin, bench = x_bench, X_sub, check.names = FALSE)
+  feat_names_lr <- make.names(colnames(X_sub), unique = TRUE)
+  colnames(df_lr)[3:ncol(df_lr)] <- feat_names_lr
+
+  formula_bench <- as.formula("y ~ bench")
+  formula_comb  <- as.formula(paste("y ~ bench +", paste(feat_names_lr, collapse = " + ")))
+
+  loocv_glm <- function(formula_obj, df) {
+    n <- nrow(df); probs <- numeric(n)
+    for (i in seq_len(n)) {
+      fit <- suppressWarnings(
+        glm(formula_obj, data = df[-i, , drop = FALSE], family = binomial())
+      )
+      probs[i] <- predict(fit, newdata = df[i, , drop = FALSE], type = "response")
+    }
+    probs
+  }
+
+  p_bench <- loocv_glm(formula_bench, df_lr)
+  p_comb  <- loocv_glm(formula_comb,  df_lr)
+
+  roc_bench <- pROC::roc(y_bin, p_bench, direction = "<", quiet = TRUE)
+  roc_comb  <- pROC::roc(y_bin, p_comb,  direction = "<", quiet = TRUE)
+  auc_bench <- as.numeric(pROC::auc(roc_bench))
+  auc_comb  <- as.numeric(pROC::auc(roc_comb))
+  ci_bench  <- tryCatch(as.numeric(pROC::ci.auc(roc_bench, method = "delong")),
+                        error = function(e) c(NA_real_, auc_bench, NA_real_))
+  ci_comb   <- tryCatch(as.numeric(pROC::ci.auc(roc_comb,  method = "delong")),
+                        error = function(e) c(NA_real_, auc_comb,  NA_real_))
+  delong_p  <- tryCatch(pROC::roc.test(roc_bench, roc_comb,
+                                       method = "delong", paired = TRUE)$p.value,
+                        error = function(e) NA_real_)
+
+  # ---- IDI / Continuous NRI ----
+  idi_components <- function(p_old, p_new, y_bin) {
+    evt <- y_bin == 1
+    imp_evt <- mean(p_new[evt]) - mean(p_old[evt])
+    red_nev <- mean(p_old[!evt]) - mean(p_new[!evt])
+    list(IDI = imp_evt + red_nev, IDI_event = imp_evt, IDI_nonevent = red_nev)
+  }
+  cnri_components <- function(p_old, p_new, y_bin) {
+    evt <- y_bin == 1
+    up_evt <- mean((p_new - p_old)[evt] > 0) - mean((p_new - p_old)[evt] < 0)
+    dn_nev <- mean((p_new - p_old)[!evt] < 0) - mean((p_new - p_old)[!evt] > 0)
+    list(NRI = up_evt + dn_nev, NRI_event = up_evt, NRI_nonevent = dn_nev)
+  }
+
+  idi <- idi_components(p_bench, p_comb, y_bin)
+  nri <- cnri_components(p_bench, p_comb, y_bin)
+
+  # Patient-level bootstrap CI for IDI / cNRI
+  set.seed(seed)
+  n_y <- length(y_bin)
+  idi_boot <- numeric(n_boot); nri_boot <- numeric(n_boot)
+  for (b in seq_len(n_boot)) {
+    idx <- sample(n_y, n_y, replace = TRUE)
+    if (length(unique(y_bin[idx])) < 2) { idi_boot[b] <- NA_real_; nri_boot[b] <- NA_real_; next }
+    idi_boot[b] <- idi_components(p_bench[idx], p_comb[idx], y_bin[idx])$IDI
+    nri_boot[b] <- cnri_components(p_bench[idx], p_comb[idx], y_bin[idx])$NRI
+  }
+  idi_ci <- as.numeric(quantile(idi_boot, c(0.025, 0.975), na.rm = TRUE))
+  nri_ci <- as.numeric(quantile(nri_boot, c(0.025, 0.975), na.rm = TRUE))
+  idi_p  <- 2 * min(mean(idi_boot <= 0, na.rm = TRUE), mean(idi_boot > 0, na.rm = TRUE))
+  nri_p  <- 2 * min(mean(nri_boot <= 0, na.rm = TRUE), mean(nri_boot > 0, na.rm = TRUE))
+
+  # ---- SVM-RBF on the same subset: benchmark + features vs features only ----
+  bench_z <- as.numeric(scale(x_bench))  # standardize benchmark to feature scale
+  X_with  <- cbind(BENCHMARK = bench_z, X_sub)
+  res_with <- run_nested_loocv_svm(X = X_with, y = y_sub,
+                                   C_grid = C_grid, gamma_grid = gamma_grid,
+                                   inner_folds = inner_folds, seed = seed)
+  res_only <- run_nested_loocv_svm(X = X_sub, y = y_sub,
+                                   C_grid = C_grid, gamma_grid = gamma_grid,
+                                   inner_folds = inner_folds, seed = seed)
+  m_with <- compute_classification_metrics(res_with$y_true, res_with$predicted_probs, pos)
+  m_only <- compute_classification_metrics(res_only$y_true, res_only$predicted_probs, pos)
+  roc_with <- tryCatch(pROC::roc(as.integer(res_with$y_true == pos),
+                                 res_with$predicted_probs, direction = "<", quiet = TRUE),
+                       error = function(e) NULL)
+  roc_only <- tryCatch(pROC::roc(as.integer(res_only$y_true == pos),
+                                 res_only$predicted_probs, direction = "<", quiet = TRUE),
+                       error = function(e) NULL)
+  svm_delong_p <- if (!is.null(roc_with) && !is.null(roc_only)) {
+    tryCatch(pROC::roc.test(roc_only, roc_with, method = "delong", paired = TRUE)$p.value,
+             error = function(e) NA_real_)
+  } else NA_real_
+
+  list(
+    label   = benchmark_label,
+    column  = benchmark_col,
+    n_valid = sum(valid_mask),
+    logistic = list(
+      auc_benchmark           = round(auc_bench, 4),
+      auc_benchmark_ci        = as.list(round(ci_bench, 4)),
+      auc_combined            = round(auc_comb, 4),
+      auc_combined_ci         = as.list(round(ci_comb, 4)),
+      delta_auc               = round(auc_comb - auc_bench, 4),
+      delong_p                = round(delong_p, 5)
+    ),
+    information_gain = list(
+      IDI                = round(idi$IDI, 4),
+      IDI_event          = round(idi$IDI_event, 4),
+      IDI_nonevent       = round(idi$IDI_nonevent, 4),
+      IDI_95CI           = as.list(round(idi_ci, 4)),
+      IDI_bootstrap_p    = round(idi_p, 4),
+      cNRI               = round(nri$NRI, 4),
+      cNRI_event         = round(nri$NRI_event, 4),
+      cNRI_nonevent      = round(nri$NRI_nonevent, 4),
+      cNRI_95CI          = as.list(round(nri_ci, 4)),
+      cNRI_bootstrap_p   = round(nri_p, 4),
+      n_boot             = n_boot
+    ),
+    svm_comparison = list(
+      auc_features_only        = round(m_only$auc, 4),
+      auc_features_with_bench  = round(m_with$auc, 4),
+      delta_auc                = round(m_with$auc - m_only$auc, 4),
+      delong_p                 = round(svm_delong_p, 5),
+      note = sprintf(
+        "Same n=%d subset. Negative delta means adding %s to the SVM-RBF kernel inputs degrades AUC — interpretable as the benchmark contributing noise relative to the LMM gate.",
+        sum(valid_mask), benchmark_label
+      )
+    ),
+    note = sprintf(
+      "Logistic LOOCV: %s alone vs %s + %d gate marker(s). IDI/cNRI estimated with patient-level bootstrap (B=%d).",
+      benchmark_label, benchmark_label, ncol(X_sub), n_boot
+    ),
+    plot_data = list(
+      y_bin                      = y_bin,
+      positive_label             = pos,
+      p_bench_logistic           = p_bench,
+      p_combined_logistic        = p_comb,
+      p_svm_features_only        = res_only$predicted_probs,
+      p_svm_features_with_bench  = res_with$predicted_probs,
+      auc_svm_features_only      = round(m_only$auc, 4),
+      auc_svm_features_with_bench= round(m_with$auc, 4)
+    )
+  )
+}
+
+
 #' @title Plot Univariate ROC Curves
 #' @description
 #' Overlaid ROC curves for each marker from the univariate AUC analysis.
@@ -1217,4 +1610,302 @@ run_nested_loocv_svm_validated <- function(DATA_T0, DATA_LONG,
        gate_stability  = gate_stab,
        n_empty_folds   = sum(sapply(gate_per_fold, length) == 0L),
        predicted_probs = probs)
+}
+
+
+#' @title Plot Benchmark-Stratified Subgroup Analysis (2-panel)
+#' @description
+#' Renders a publication-ready 2-panel figure for run_pdl1_stratified() output:
+#'   - Panel A: bar chart of response rate by benchmark bin (with N per bin
+#'     labelled on bars) plus the chi-squared trend test p-value
+#'   - Panel B: ROC curve of the model restricted to the "benchmark-low"
+#'     subgroup (typically the clinically actionable population) with AUC and
+#'     95% CI annotated. A single point at the benchmark binary-cut performance
+#'     in the same subgroup is overlaid as a reference, when defined.
+#'
+#' Uses patchwork to lay out the two panels side by side. Pass the same
+#' colors_viz used elsewhere to keep palette consistency.
+#'
+#' @param stratified_result List returned by run_pdl1_stratified().
+#' @param colors_viz Named vector of clinical colours (optional; if missing,
+#'   responder/non-responder default to standard journal palette).
+#' @param positive_label Positive class label (e.g. "RP"). Defaults to inferred.
+#' @param title Optional overall title for the figure.
+#' @return A patchwork object combining the two panels, or NULL on failure.
+#' @export
+plot_benchmark_stratified <- function(stratified_result,
+                                      colors_viz     = NULL,
+                                      positive_label = NULL,
+                                      title          = NULL) {
+  if (is.null(stratified_result)) return(NULL)
+  if (!requireNamespace("ggplot2",   quietly = TRUE)) return(NULL)
+  if (!requireNamespace("patchwork", quietly = TRUE)) return(NULL)
+  if (!requireNamespace("pROC",      quietly = TRUE)) return(NULL)
+
+  pos_lbl <- if (!is.null(positive_label)) positive_label else "Responder"
+  resp_color  <- if (!is.null(colors_viz) && pos_lbl %in% names(colors_viz)) colors_viz[[pos_lbl]] else "#2E8B57"
+  nonresp_color <- if (!is.null(colors_viz)) {
+    cn <- setdiff(names(colors_viz), pos_lbl)
+    if (length(cn) > 0) colors_viz[[cn[1]]] else "#B2182B"
+  } else "#B2182B"
+
+  # Short label for titles — strip trailing "expression (%)" / "(%)" noise
+  bench_short <- sub("\\s*(expression\\s*\\(%\\)|\\(%\\)|\\(.*\\))\\s*$", "",
+                     stratified_result$label)
+  bench_short <- trimws(bench_short)
+  if (bench_short == "") bench_short <- stratified_result$label
+
+  # ---- Panel A: Response rate bar chart ----
+  bin_df <- stratified_result$bin_crosstab
+  bin_df$Bin <- factor(bin_df$Bin, levels = stratified_result$bin_labels)
+  bin_df$Label <- sprintf("%.1f%%\n(N=%d, R=%d)",
+                          bin_df$Response_Rate, bin_df$N, bin_df$N_Responder)
+
+  pA <- ggplot2::ggplot(bin_df, ggplot2::aes(x = Bin, y = Response_Rate)) +
+    ggplot2::geom_col(fill = resp_color, alpha = 0.85, width = 0.65) +
+    ggplot2::geom_text(ggplot2::aes(label = Label),
+                       vjust = -0.4, size = 4.2, lineheight = 0.85) +
+    ggplot2::geom_hline(yintercept = 50, linetype = "dashed", color = "grey60") +
+    ggplot2::scale_y_continuous(limits = c(0, max(bin_df$Response_Rate) + 18),
+                                 expand = c(0, 0),
+                                 breaks = seq(0, 100, 25),
+                                 labels = function(x) paste0(x, "%")) +
+    ggplot2::labs(
+      title = sprintf("Response rate by %s strata", bench_short),
+      subtitle = sprintf("3-bin Fisher p = %.3f | Cochran-Armitage trend p = %.3f | N total = %d",
+                         stratified_result$fisher_3bins_p,
+                         stratified_result$ca_trend_p,
+                         stratified_result$n_valid),
+      x = stratified_result$label, y = "Responder rate"
+    ) +
+    ggplot2::theme_bw(base_size = 13) +
+    ggplot2::theme(
+      plot.title    = ggplot2::element_text(face = "bold"),
+      plot.subtitle = ggplot2::element_text(color = "gray35", size = 11),
+      panel.grid.minor = ggplot2::element_blank(),
+      panel.grid.major.x = ggplot2::element_blank(),
+      axis.text.x   = ggplot2::element_text(face = "bold")
+    )
+
+  # ---- Panel B: ROC in benchmark-low subgroup ----
+  sl <- stratified_result$subgroup_low
+  pB <- NULL
+  if (!is.null(sl$predicted_probs) && !is.na(sl$auc)) {
+    y_bin   <- as.integer(sl$y_true == pos_lbl)
+    roc_obj <- tryCatch(pROC::roc(y_bin, sl$predicted_probs, direction = "<", quiet = TRUE),
+                        error = function(e) NULL)
+    if (!is.null(roc_obj)) {
+      roc_df <- data.frame(
+        FPR = 1 - roc_obj$specificities,
+        TPR = roc_obj$sensitivities
+      )
+
+      # Binary-cut reference point (TPS>=threshold within the full cohort)
+      bc <- stratified_result$binary_cut
+      bc_x <- 1 - bc$specificity; bc_y <- bc$sensitivity
+
+      auc_lab <- sprintf("KI67-gate model (subgroup)\nAUC = %.3f [%.3f-%.3f]",
+                         sl$auc, sl$auc_ci[1], sl$auc_ci[3])
+
+      bench_threshold <- bc$threshold
+      bench_lab <- sprintf("%s >=%g cut\n(full cohort)", bench_short, bench_threshold)
+
+      pB <- ggplot2::ggplot(roc_df, ggplot2::aes(x = FPR, y = TPR)) +
+        ggplot2::geom_abline(slope = 1, intercept = 0, linetype = "dashed",
+                              color = "grey55", linewidth = 0.6) +
+        ggplot2::geom_line(color = resp_color, linewidth = 1.3) +
+        ggplot2::annotate("point",  x = bc_x, y = bc_y, color = nonresp_color,
+                          shape = 18, size = 4.5) +
+        ggplot2::annotate("text",   x = bc_x + 0.04, y = bc_y - 0.02,
+                          label = bench_lab, hjust = 0, size = 3.4,
+                          color = nonresp_color, lineheight = 0.9) +
+        ggplot2::annotate("label",  x = 0.98, y = 0.06, label = auc_lab,
+                          hjust = 1, size = 3.8, color = resp_color, fill = "white",
+                          label.size = 0.4, fontface = "bold", lineheight = 0.9) +
+        ggplot2::scale_x_continuous(limits = c(0, 1), expand = c(0.005, 0)) +
+        ggplot2::scale_y_continuous(limits = c(0, 1), expand = c(0.005, 0)) +
+        ggplot2::labs(
+          title = sprintf("Model in %s < %g subgroup",
+                          bench_short, bc$threshold),
+          subtitle = sprintf("n = %d (responders=%d) | clinical context where %s alone is non-discriminative",
+                             sl$n, sl$n_responder, bench_short),
+          x = "1 - Specificity (FPR)", y = "Sensitivity (TPR)"
+        ) +
+        ggplot2::theme_bw(base_size = 13) +
+        ggplot2::theme(
+          plot.title    = ggplot2::element_text(face = "bold"),
+          plot.subtitle = ggplot2::element_text(color = "gray35", size = 11),
+          panel.grid.minor = ggplot2::element_blank()
+        )
+    }
+  }
+
+  if (is.null(pB)) {
+    out <- pA
+  } else {
+    out <- patchwork::wrap_plots(pA, pB, ncol = 2, widths = c(1, 1))
+  }
+  if (!is.null(title)) {
+    out <- out + patchwork::plot_annotation(
+      title = title,
+      theme = ggplot2::theme(plot.title = ggplot2::element_text(face = "bold", size = 14))
+    )
+  }
+  out
+}
+
+
+#' @title Plot Combined-Model Information Gain (2-panel)
+#' @description
+#' Publication figure for run_combined_benchmark_model(). Panel A overlays the
+#' three ROC curves of interest on the same n_valid subset (benchmark alone,
+#' benchmark + LMM gate combined via logistic LOOCV, and the LMM-gate SVM-RBF
+#' nested-LOOCV). Panel B is a forest-style plot of the three information-gain
+#' point estimates (IDI, cNRI, ΔAUC) with their bootstrap 95% CIs, mapping
+#' directly onto the Pencina reclassification framework expected by reviewers.
+#'
+#' @param combined_result List returned by run_combined_benchmark_model().
+#' @param title Optional overall title.
+#' @return A patchwork object, or NULL on failure.
+#' @export
+plot_combined_information_gain <- function(combined_result, title = NULL) {
+  if (is.null(combined_result) || is.null(combined_result$plot_data)) return(NULL)
+  if (!requireNamespace("ggplot2",   quietly = TRUE)) return(NULL)
+  if (!requireNamespace("patchwork", quietly = TRUE)) return(NULL)
+  if (!requireNamespace("pROC",      quietly = TRUE)) return(NULL)
+
+  pd <- combined_result$plot_data
+  lg <- combined_result$logistic
+  ig <- combined_result$information_gain
+  sv <- combined_result$svm_comparison
+
+  y_bin <- pd$y_bin
+  bench_label <- combined_result$label
+  bench_short <- sub("\\s*(expression\\s*\\(%\\)|\\(%\\)|\\(.*\\))\\s*$", "", bench_label)
+  bench_short <- trimws(bench_short)
+  if (bench_short == "") bench_short <- bench_label
+
+  build_roc <- function(p_vec, label, auc_val, auc_ci_lo, auc_ci_hi) {
+    roc_obj <- tryCatch(pROC::roc(y_bin, p_vec, direction = "<", quiet = TRUE),
+                        error = function(e) NULL)
+    if (is.null(roc_obj)) return(NULL)
+    data.frame(
+      FPR = 1 - roc_obj$specificities,
+      TPR = roc_obj$sensitivities,
+      Model = sprintf("%s (AUC=%.3f [%.3f-%.3f])",
+                      label, auc_val, auc_ci_lo, auc_ci_hi),
+      stringsAsFactors = FALSE
+    )
+  }
+
+  # SVM CIs not stored explicitly; reconstruct quickly for labelling
+  roc_only <- pROC::roc(y_bin, pd$p_svm_features_only,       direction = "<", quiet = TRUE)
+  ci_only  <- tryCatch(as.numeric(pROC::ci.auc(roc_only, method = "delong")),
+                       error = function(e) c(NA, pd$auc_svm_features_only, NA))
+  roc_with <- pROC::roc(y_bin, pd$p_svm_features_with_bench, direction = "<", quiet = TRUE)
+  ci_with  <- tryCatch(as.numeric(pROC::ci.auc(roc_with, method = "delong")),
+                       error = function(e) c(NA, pd$auc_svm_features_with_bench, NA))
+
+  rocs <- rbind(
+    build_roc(pd$p_bench_logistic,    sprintf("%s alone (logistic)", bench_short),
+              lg$auc_benchmark,
+              lg$auc_benchmark_ci[[1]], lg$auc_benchmark_ci[[3]]),
+    build_roc(pd$p_combined_logistic, sprintf("%s + KI67 gate (logistic)", bench_short),
+              lg$auc_combined,
+              lg$auc_combined_ci[[1]], lg$auc_combined_ci[[3]]),
+    build_roc(pd$p_svm_features_only, "KI67 gate alone (SVM-RBF)",
+              pd$auc_svm_features_only, ci_only[1], ci_only[3])
+  )
+
+  model_colors <- c("#7A5CA6", "#2E8B57", "#B2182B")
+  names(model_colors) <- unique(rocs$Model)
+
+  pA <- ggplot2::ggplot(rocs, ggplot2::aes(x = FPR, y = TPR, color = Model)) +
+    ggplot2::geom_abline(slope = 1, intercept = 0, linetype = "dashed",
+                          color = "grey55", linewidth = 0.6) +
+    ggplot2::geom_line(linewidth = 1.2) +
+    ggplot2::scale_color_manual(values = model_colors) +
+    ggplot2::scale_x_continuous(limits = c(0, 1), expand = c(0.005, 0)) +
+    ggplot2::scale_y_continuous(limits = c(0, 1), expand = c(0.005, 0)) +
+    ggplot2::labs(
+      title    = "ROC: benchmark, combined, and gate-only",
+      subtitle = sprintf("Same cohort subset (n = %d, non-NA %s)",
+                         combined_result$n_valid, bench_short),
+      x        = "1 - Specificity (FPR)", y = "Sensitivity (TPR)",
+      color    = NULL
+    ) +
+    ggplot2::theme_bw(base_size = 13) +
+    ggplot2::theme(
+      plot.title    = ggplot2::element_text(face = "bold"),
+      plot.subtitle = ggplot2::element_text(color = "gray35", size = 11),
+      legend.position = "bottom",
+      legend.direction = "vertical",
+      legend.text   = ggplot2::element_text(size = 9.5),
+      legend.key.height = ggplot2::unit(8, "pt"),
+      panel.grid.minor = ggplot2::element_blank()
+    )
+
+  # ---- Panel B: Information-gain forest ----
+  forest_df <- data.frame(
+    Metric = c(
+      sprintf("IDI\n(bootstrap p = %.3f)",      ig$IDI_bootstrap_p),
+      sprintf("Continuous NRI\n(bootstrap p = %.3f)", ig$cNRI_bootstrap_p),
+      sprintf("Delta AUC (logistic)\n(DeLong p = %.3f)", lg$delong_p),
+      sprintf("Delta AUC (SVM combined)\n(DeLong p = %.3f)", sv$delong_p)
+    ),
+    Estimate = c(ig$IDI, ig$cNRI, lg$delta_auc, sv$delta_auc),
+    Lower    = c(ig$IDI_95CI[[1]], ig$cNRI_95CI[[1]], NA_real_, NA_real_),
+    Upper    = c(ig$IDI_95CI[[2]], ig$cNRI_95CI[[2]], NA_real_, NA_real_),
+    stringsAsFactors = FALSE
+  )
+  forest_df$Metric <- factor(forest_df$Metric, levels = rev(forest_df$Metric))
+  forest_df$Significant <- ifelse(
+    !is.na(forest_df$Lower) & forest_df$Lower > 0, "Positive (CI > 0)",
+    ifelse(!is.na(forest_df$Lower) & forest_df$Upper < 0, "Negative (CI < 0)",
+           ifelse(forest_df$Estimate > 0, "Positive (point)", "Negative (point)"))
+  )
+  sig_colors <- c(
+    "Positive (CI > 0)"  = "#2E8B57",
+    "Negative (CI < 0)"  = "#B2182B",
+    "Positive (point)"   = "#7AC480",
+    "Negative (point)"   = "#E08983"
+  )
+
+  pB <- ggplot2::ggplot(forest_df,
+                        ggplot2::aes(x = Estimate, y = Metric, color = Significant)) +
+    ggplot2::geom_vline(xintercept = 0, linetype = "dashed", color = "grey55") +
+    ggplot2::geom_errorbarh(ggplot2::aes(xmin = Lower, xmax = Upper),
+                             height = 0.2, linewidth = 0.9, na.rm = TRUE) +
+    ggplot2::geom_point(size = 4.5) +
+    ggplot2::geom_text(ggplot2::aes(label = sprintf("%+.3f", Estimate)),
+                        hjust = -0.25, vjust = -0.7, size = 4, fontface = "bold",
+                        color = "black") +
+    ggplot2::scale_color_manual(values = sig_colors, na.translate = FALSE) +
+    ggplot2::labs(
+      title    = sprintf("Information gain (KI67 gate vs %s)", bench_short),
+      subtitle = sprintf("Point estimates with 95%% bootstrap CIs (B=%d) where applicable",
+                         ig$n_boot),
+      x        = "Estimate (positive = KI67 gate adds value)",
+      y        = NULL,
+      color    = NULL
+    ) +
+    ggplot2::theme_bw(base_size = 13) +
+    ggplot2::theme(
+      plot.title    = ggplot2::element_text(face = "bold"),
+      plot.subtitle = ggplot2::element_text(color = "gray35", size = 11),
+      legend.position = "bottom",
+      axis.text.y   = ggplot2::element_text(size = 10),
+      panel.grid.minor = ggplot2::element_blank()
+    ) +
+    ggplot2::coord_cartesian(clip = "off") +
+    ggplot2::theme(plot.margin = ggplot2::margin(8, 50, 8, 8))
+
+  out <- patchwork::wrap_plots(pA, pB, ncol = 2, widths = c(1.05, 1))
+  if (!is.null(title)) {
+    out <- out + patchwork::plot_annotation(
+      title = title,
+      theme = ggplot2::theme(plot.title = ggplot2::element_text(face = "bold", size = 14))
+    )
+  }
+  out
 }

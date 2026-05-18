@@ -252,6 +252,87 @@ if (lmm_robust$n_robust == 0) {
     )
   }
 
+  # 10c. Benchmark-Stratified + Combined Model Information Gain
+  # Activated when a clinical benchmark column is configured. Adds two
+  # complementary perspectives beyond the basic DeLong comparison:
+  #   - Stratified analysis: clinical-strata bins (e.g. PD-L1 TPS) + per-bin
+  #     subgroup AUC of the model (most clinically actionable: benchmark-low)
+  #   - Combined model: logistic LOOCV with benchmark + gate features, with
+  #     IDI / continuous NRI and patient-level bootstrap CIs
+  # ------------------------------------------------------------------------------
+  stratified_result   <- NULL
+  combined_result     <- NULL
+
+  if (!is.null(bench_col) && !is.null(config$input_file_t0)) {
+    message(sprintf("\n[ML] Benchmark-stratified subgroup analysis: '%s'...", bench_label))
+    stratified_result <- tryCatch(
+      run_pdl1_stratified(
+        DATA            = DATA,
+        X_main          = X_main,
+        y               = y,
+        positive_label  = res_glmnet$positive_label,
+        input_file      = config$input_file_t0,
+        benchmark_col   = bench_col,
+        benchmark_label = bench_label,
+        C_grid          = C_grid,
+        gamma_grid      = gamma_grid,
+        inner_folds     = inner_k_sv,
+        seed            = config$stats$seed
+      ),
+      error = function(e) {
+        warning(sprintf("[ML] Stratified analysis failed: %s", e$message))
+        NULL
+      }
+    )
+
+    if (!is.null(stratified_result)) {
+      bc <- stratified_result$binary_cut
+      message(sprintf("   [Stratified] Binary cut at %g: BalAcc=%.3f Sens=%.3f Spec=%.3f Fisher p=%.4f",
+                      bc$threshold, bc$balanced_accuracy, bc$sensitivity, bc$specificity, bc$fisher_p))
+      sl <- stratified_result$subgroup_low; sh <- stratified_result$subgroup_high
+      if (!is.na(sl$auc)) message(sprintf("   [Stratified] Subgroup low  (n=%d): SVM AUC=%.3f", sl$n, sl$auc))
+      if (!is.na(sh$auc)) message(sprintf("   [Stratified] Subgroup high (n=%d): SVM AUC=%.3f", sh$n, sh$auc))
+    }
+
+    message(sprintf("\n[ML] Combined model (information gain over '%s')...", bench_label))
+    combined_result <- tryCatch(
+      run_combined_benchmark_model(
+        DATA            = DATA,
+        X_main          = X_main,
+        y               = y,
+        positive_label  = res_glmnet$positive_label,
+        input_file      = config$input_file_t0,
+        benchmark_col   = bench_col,
+        benchmark_label = bench_label,
+        n_boot          = 1000L,
+        C_grid          = C_grid,
+        gamma_grid      = gamma_grid,
+        inner_folds     = inner_k_sv,
+        seed            = config$stats$seed
+      ),
+      error = function(e) {
+        warning(sprintf("[ML] Combined model analysis failed: %s", e$message))
+        NULL
+      }
+    )
+
+    if (!is.null(combined_result)) {
+      ig <- combined_result$information_gain
+      lg <- combined_result$logistic
+      sv <- combined_result$svm_comparison
+      message(sprintf("   [Combined] Logistic %s vs %s+gate: AUC %.3f -> %.3f (ΔAUC=%+.3f, DeLong p=%.4f)",
+                      bench_label, bench_label, lg$auc_benchmark, lg$auc_combined,
+                      lg$delta_auc, lg$delong_p))
+      message(sprintf("   [Combined] IDI=%+.4f [%+.4f, %+.4f]  bootstrap p=%.4f",
+                      ig$IDI, ig$IDI_95CI[[1]], ig$IDI_95CI[[2]], ig$IDI_bootstrap_p))
+      message(sprintf("   [Combined] cNRI=%+.4f [%+.4f, %+.4f]  bootstrap p=%.4f",
+                      ig$cNRI, ig$cNRI_95CI[[1]], ig$cNRI_95CI[[2]], ig$cNRI_bootstrap_p))
+      message(sprintf("   [Combined] SVM features-only=%.3f vs features+benchmark=%.3f (ΔAUC=%+.3f, DeLong p=%.4f)",
+                      sv$auc_features_only, sv$auc_features_with_bench,
+                      sv$delta_auc, sv$delong_p))
+    }
+  }
+
   # 11. Nested LOO Validation (optional, config-driven)
   # ------------------------------------------------------------------------------
   nested_validation <- NULL
@@ -324,10 +405,13 @@ if (lmm_robust$n_robust == 0) {
     ),
     scaling_note = paste(
       "Z-scores computed globally in Step 01 (deterministic centering, not a learned parameter).",
-      "Minor approximation: test-fold statistics are not excluded from scaling.",
+      "Per-fold re-centering on training statistics is applied inside the SVM-RBF inner loop;",
+      "the upstream global z-scoring is therefore an affine transformation that cancels out.",
+      "Verified empirically (diag_11): refitting the classifier with strict per-fold z-scoring",
+      "from the raw transformed input yields the identical AUC (DeLong p=1.0).",
       "Feature gate derived from longitudinal data (Step 04) — disjoint from classifier training data.",
       if (!is.null(nested_validation))
-        sprintf("Leakage empirically quantified: fully-nested LOO validation yielded AUC=%.3f [%.3f-%.3f] with %d%% gate stability for primary marker (see nested_loocv_validation).",
+        sprintf("Leakage further quantified: fully-nested LOO validation yielded AUC=%.3f [%.3f-%.3f] with %d%% gate stability for primary marker (see nested_loocv_validation).",
                 nested_validation$metrics$auc,
                 nested_validation$metrics$auc_ci[1],
                 nested_validation$metrics$auc_ci[3],
@@ -361,6 +445,21 @@ if (lmm_robust$n_robust == 0) {
           if (is.na(benchmark_result$delong_p)) 0 else benchmark_result$delong_p
         )
       )
+    } else NULL,
+    benchmark_stratified = if (!is.null(stratified_result)) {
+      # Strip per-patient raw vectors before JSON serialization (kept in-memory for plotting)
+      sr_json <- stratified_result
+      for (sub in c("subgroup_low", "subgroup_high")) {
+        sr_json[[sub]]$predicted_probs <- NULL
+        sr_json[[sub]]$y_true          <- NULL
+        sr_json[[sub]]$benchmark_vals  <- NULL
+      }
+      sr_json
+    } else NULL,
+    benchmark_combined   = if (!is.null(combined_result)) {
+      cr_json <- combined_result
+      cr_json$plot_data <- NULL
+      cr_json
     } else NULL,
     nested_loocv_validation = if (!is.null(nested_validation)) {
       nv_m <- nested_validation$metrics
@@ -489,6 +588,91 @@ if (lmm_robust$n_robust == 0) {
     openxlsx::writeData(wb, "Clinical_Benchmark", df_bench_report)
   }
 
+  if (!is.null(stratified_result)) {
+    bc <- stratified_result$binary_cut
+    sl <- stratified_result$subgroup_low
+    sh <- stratified_result$subgroup_high
+    df_strat_summary <- data.frame(
+      Metric = c(
+        "Benchmark biomarker", "N valid", "Bin breaks", "Bin labels",
+        "Fisher exact p (3 bins)", "Cochran-Armitage trend p",
+        sprintf("Binary cut threshold (>=%s)", bc$threshold),
+        "Binary cut: N", "Binary cut: N high", "Binary cut: N low",
+        "Binary cut: Balanced Accuracy", "Binary cut: Sensitivity",
+        "Binary cut: Specificity", "Binary cut: Fisher p", "Binary cut: Odds Ratio",
+        "Subgroup low: N", "Subgroup low: AUC",
+        "Subgroup low: AUC CI Lower", "Subgroup low: AUC CI Upper",
+        "Subgroup high: N", "Subgroup high: AUC",
+        "Subgroup high: AUC CI Lower", "Subgroup high: AUC CI Upper",
+        "Note"
+      ),
+      Value = c(
+        stratified_result$label, as.character(stratified_result$n_valid),
+        paste(stratified_result$bin_breaks, collapse = " / "),
+        paste(stratified_result$bin_labels, collapse = " | "),
+        as.character(stratified_result$fisher_3bins_p),
+        as.character(stratified_result$ca_trend_p),
+        as.character(bc$threshold),
+        as.character(bc$n), as.character(bc$n_high), as.character(bc$n_low),
+        as.character(bc$balanced_accuracy), as.character(bc$sensitivity),
+        as.character(bc$specificity), as.character(bc$fisher_p),
+        as.character(bc$odds_ratio),
+        as.character(sl$n),
+        if (is.na(sl$auc)) "NA" else as.character(sl$auc),
+        if (any(is.na(sl$auc_ci))) "NA" else as.character(sl$auc_ci[1]),
+        if (any(is.na(sl$auc_ci))) "NA" else as.character(sl$auc_ci[3]),
+        as.character(sh$n),
+        if (is.na(sh$auc)) "NA" else as.character(sh$auc),
+        if (any(is.na(sh$auc_ci))) "NA" else as.character(sh$auc_ci[1]),
+        if (any(is.na(sh$auc_ci))) "NA" else as.character(sh$auc_ci[3]),
+        stratified_result$note
+      ),
+      stringsAsFactors = FALSE
+    )
+    openxlsx::addWorksheet(wb, "Benchmark_Stratified")
+    openxlsx::writeData(wb, "Benchmark_Stratified", df_strat_summary)
+    openxlsx::addWorksheet(wb, "Benchmark_Stratified_Bins")
+    openxlsx::writeData(wb, "Benchmark_Stratified_Bins", stratified_result$bin_crosstab)
+  }
+
+  if (!is.null(combined_result)) {
+    lg <- combined_result$logistic
+    ig <- combined_result$information_gain
+    sv <- combined_result$svm_comparison
+    df_comb_summary <- data.frame(
+      Metric = c(
+        "Benchmark biomarker", "N valid (non-NA)",
+        sprintf("Logistic AUC %s alone",          combined_result$label),
+        sprintf("Logistic AUC %s+gate combined",  combined_result$label),
+        "Logistic delta AUC", "Logistic DeLong p",
+        "IDI", "IDI 95% CI Lower", "IDI 95% CI Upper", "IDI bootstrap p",
+        "cNRI", "cNRI 95% CI Lower", "cNRI 95% CI Upper", "cNRI bootstrap p",
+        "Bootstrap iterations (IDI/cNRI)",
+        "SVM AUC features only (same subset)",
+        sprintf("SVM AUC features + %s",   combined_result$label),
+        "SVM delta AUC", "SVM DeLong p",
+        "Note"
+      ),
+      Value = c(
+        combined_result$label, as.character(combined_result$n_valid),
+        as.character(lg$auc_benchmark), as.character(lg$auc_combined),
+        as.character(lg$delta_auc), as.character(lg$delong_p),
+        as.character(ig$IDI), as.character(ig$IDI_95CI[[1]]),
+        as.character(ig$IDI_95CI[[2]]), as.character(ig$IDI_bootstrap_p),
+        as.character(ig$cNRI), as.character(ig$cNRI_95CI[[1]]),
+        as.character(ig$cNRI_95CI[[2]]), as.character(ig$cNRI_bootstrap_p),
+        as.character(ig$n_boot),
+        as.character(sv$auc_features_only),
+        as.character(sv$auc_features_with_bench),
+        as.character(sv$delta_auc), as.character(sv$delong_p),
+        combined_result$note
+      ),
+      stringsAsFactors = FALSE
+    )
+    openxlsx::addWorksheet(wb, "Benchmark_Combined")
+    openxlsx::writeData(wb, "Benchmark_Combined", df_comb_summary)
+  }
+
   if (!is.null(nested_validation)) {
     nv_m      <- nested_validation$metrics
     df_nested <- data.frame(
@@ -570,6 +754,38 @@ if (lmm_robust$n_robust == 0) {
     if (!is.null(p_uni)) print(p_uni)
   }, error = function(e) warning(paste("Univariate ROC plot failed:", e$message)))
   dev.off()
+
+  # Benchmark-stratified figure (clinical-strata + subgroup ROC)
+  if (!is.null(stratified_result)) {
+    pdf(file.path(out_dir, sprintf("Benchmark_Stratified_%s.pdf", config$project_name)),
+        width = 13, height = 6)
+    tryCatch({
+      p_strat <- plot_benchmark_stratified(
+        stratified_result = stratified_result,
+        colors_viz        = colors_viz,
+        positive_label    = res_glmnet$positive_label,
+        title             = sprintf("%s strata and gate-model subgroup performance (%s)",
+                                    stratified_result$label, config$project_name)
+      )
+      if (!is.null(p_strat)) print(p_strat)
+    }, error = function(e) warning(paste("Stratified figure failed:", e$message)))
+    dev.off()
+  }
+
+  # Combined-model information-gain figure (3-ROC overlay + IDI/cNRI forest)
+  if (!is.null(combined_result)) {
+    pdf(file.path(out_dir, sprintf("InformationGain_%s.pdf", config$project_name)),
+        width = 13, height = 6)
+    tryCatch({
+      p_ig <- plot_combined_information_gain(
+        combined_result = combined_result,
+        title           = sprintf("Information gain over %s (%s)",
+                                  combined_result$label, config$project_name)
+      )
+      if (!is.null(p_ig)) print(p_ig)
+    }, error = function(e) warning(paste("InformationGain figure failed:", e$message)))
+    dev.off()
+  }
 
   bench_line <- if (!is.null(benchmark_result)) {
     sprintf(" | %s AUC=%.3f (n=%d, DeLong p=%.4f)",

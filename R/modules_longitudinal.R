@@ -172,6 +172,137 @@ run_loo_sensitivity <- function(data_long, feature, group_col = "Group",
   return(if (max_p_val == 0) NA else max_p_val)
 }
 
+#' @title Cluster Bootstrap CI for LMM Interaction Betas
+#' @description
+#' Patient-level cluster bootstrap (resample patient IDs with replacement,
+#' preserving the within-patient T0/T1 pairing). For each bootstrap iteration
+#' refits the full LMM panel and re-applies BH-FDR, then reports for the
+#' supplied target markers:
+#'   - bootstrap median estimate
+#'   - 2.5% / 97.5% bootstrap quantiles (95% CI)
+#'   - two-sided proportion-based bootstrap p-value
+#'   - fraction of resamples in which the marker still passes FDR < fdr_threshold
+#'
+#' @param data_long Dataframe in long format (one row per (Patient_ID, Timepoint)).
+#' @param all_markers Character vector of all markers fitted in the primary LMM
+#'   panel (needed for BH-FDR re-computation inside each bootstrap iteration).
+#' @param target_markers Character vector of markers to report results for
+#'   (typically the FDR-significant subset from the primary run).
+#' @param group_col,time_col,id_col Column names in data_long.
+#' @param covariates Optional clinical covariates passed to fit_feature_lmm.
+#' @param n_boot Integer. Number of bootstrap iterations (default 500).
+#' @param fdr_threshold Numeric. FDR cutoff for the per-iteration significance
+#'   tally (default 0.05).
+#' @param seed Integer. RNG seed for reproducibility (default 2026).
+#' @param progress_message Logical. Print every 100 iterations (default TRUE).
+#' @return A list with:
+#'   - summary_df: one row per target marker (Marker, Median_Beta_Boot,
+#'                 CI_Lower_2.5, CI_Upper_97.5, Bootstrap_P, Pct_FDR_Significant,
+#'                 N_Valid_Iterations)
+#'   - beta_matrix: B x length(target_markers) matrix of bootstrap betas
+#'   - fdr_matrix:  B x length(target_markers) matrix of bootstrap FDR values
+#'   - n_boot, seed, fdr_threshold
+run_lmm_bootstrap_ci <- function(data_long,
+                                 all_markers,
+                                 target_markers,
+                                 group_col       = "Group",
+                                 time_col        = "Timepoint",
+                                 id_col          = "Patient_ID",
+                                 covariates      = NULL,
+                                 n_boot          = 500L,
+                                 fdr_threshold   = 0.05,
+                                 seed            = 2026L,
+                                 progress_message = TRUE) {
+
+  target_markers <- intersect(target_markers, all_markers)
+  if (length(target_markers) == 0) {
+    return(list(summary_df = data.frame(), beta_matrix = NULL, fdr_matrix = NULL,
+                n_boot = 0L, seed = seed, fdr_threshold = fdr_threshold))
+  }
+
+  unique_pids <- unique(data_long[[id_col]])
+  n_pat       <- length(unique_pids)
+
+  beta_mat <- matrix(NA_real_, nrow = n_boot, ncol = length(target_markers),
+                     dimnames = list(NULL, target_markers))
+  fdr_mat  <- matrix(NA_real_, nrow = n_boot, ncol = length(target_markers),
+                     dimnames = list(NULL, target_markers))
+
+  set.seed(seed)
+  t0 <- Sys.time()
+
+  for (b in seq_len(n_boot)) {
+    sampled_pids <- sample(unique_pids, n_pat, replace = TRUE)
+
+    rows_list <- lapply(seq_along(sampled_pids), function(j) {
+      pid <- sampled_pids[j]
+      sub <- data_long[data_long[[id_col]] == pid, , drop = FALSE]
+      sub[[id_col]] <- paste0(pid, "_b", j)  # unique pseudo-ID per draw
+      sub
+    })
+    data_boot <- do.call(rbind, rows_list)
+
+    res_list <- lapply(all_markers, function(mk) {
+      fit_feature_lmm(data_long = data_boot, feature = mk,
+                      group_col = group_col, time_col = time_col,
+                      id_col = id_col, covariates = covariates)
+    })
+    res_df <- do.call(rbind, res_list)
+    res_df$FDR <- p.adjust(res_df$P_Value_Interaction, method = "BH")
+
+    for (m in target_markers) {
+      row <- res_df[res_df$Marker == m, , drop = FALSE]
+      if (nrow(row) == 1 && !is.na(row$Estimate_Interaction)) {
+        beta_mat[b, m] <- row$Estimate_Interaction
+        fdr_mat[b, m]  <- row$FDR
+      }
+    }
+
+    if (progress_message && b %% 100 == 0) {
+      elapsed <- as.numeric(difftime(Sys.time(), t0, units = "secs"))
+      eta     <- elapsed / b * (n_boot - b)
+      message(sprintf("      [Bootstrap] iter %d/%d  [%.0fs elapsed, ~%.0fs remaining]",
+                      b, n_boot, elapsed, eta))
+    }
+  }
+
+  summary_rows <- lapply(target_markers, function(m) {
+    b_vec <- beta_mat[, m]; b_vec <- b_vec[!is.na(b_vec)]
+    f_vec <- fdr_mat[, m];  f_vec <- f_vec[!is.na(f_vec)]
+    if (length(b_vec) == 0) {
+      return(data.frame(Marker = m, Median_Beta_Boot = NA_real_,
+                        CI_Lower_2.5 = NA_real_, CI_Upper_97.5 = NA_real_,
+                        Bootstrap_P = NA_real_, Pct_FDR_Significant = NA_real_,
+                        N_Valid_Iterations = 0L, stringsAsFactors = FALSE))
+    }
+    ci      <- quantile(b_vec, c(0.025, 0.975))
+    one_sided <- mean(b_vec >= 0)
+    two_sided <- 2 * min(one_sided, 1 - one_sided)
+    pct_fdr <- mean(f_vec < fdr_threshold) * 100
+    data.frame(
+      Marker             = m,
+      Median_Beta_Boot   = round(median(b_vec), 4),
+      CI_Lower_2.5       = round(ci[1], 4),
+      CI_Upper_97.5      = round(ci[2], 4),
+      Bootstrap_P        = round(two_sided, 4),
+      Pct_FDR_Significant = round(pct_fdr, 1),
+      N_Valid_Iterations = length(b_vec),
+      stringsAsFactors   = FALSE
+    )
+  })
+  summary_df <- do.call(rbind, summary_rows)
+
+  list(
+    summary_df    = summary_df,
+    beta_matrix   = beta_mat,
+    fdr_matrix    = fdr_mat,
+    n_boot        = n_boot,
+    seed          = seed,
+    fdr_threshold = fdr_threshold
+  )
+}
+
+
 #' @title Plot Longitudinal Trajectories (Spaghetti + Boxplot)
 #' @description Visualizes patient trajectories over time, split by group.
 #' @param data_long Dataframe in long format.
@@ -285,6 +416,71 @@ plot_lmm_volcano <- function(results_df, title = "Longitudinal Interaction (LMM)
       legend.position = "bottom",
       panel.grid.minor = element_blank()
     )
-  
+
+  return(p)
+}
+
+
+#' @title Forest Plot of Bootstrap LMM Beta Estimates
+#' @description
+#' Renders a horizontal forest plot of the bootstrap-derived interaction beta
+#' estimates with 95% bootstrap CIs. Each row is one target marker; the
+#' observed (point) estimate from the primary LMM is plotted as a coloured
+#' point, the bootstrap CI as a horizontal segment, and the bootstrap median
+#' as a small dashed vertical tick. A reference line at beta=0 marks the null.
+#'
+#' @param boot_summary Dataframe from run_lmm_bootstrap_ci()$summary_df. Must
+#'   contain Marker, Median_Beta_Boot, CI_Lower_2.5, CI_Upper_97.5,
+#'   Pct_FDR_Significant.
+#' @param observed_df Optional dataframe with columns Marker and
+#'   Estimate_Interaction (primary LMM point estimate). If provided, plotted
+#'   alongside the bootstrap median.
+#' @param title Plot title.
+#' @return A ggplot object, or NULL if no rows.
+plot_lmm_forest <- function(boot_summary, observed_df = NULL,
+                            title = "Bootstrap 95% CI of LMM Interaction Betas") {
+  if (is.null(boot_summary) || nrow(boot_summary) == 0) return(NULL)
+  if (!requireNamespace("ggplot2", quietly = TRUE)) return(NULL)
+
+  plot_df <- boot_summary
+  if (!is.null(observed_df) && all(c("Marker", "Estimate_Interaction") %in% colnames(observed_df))) {
+    plot_df <- merge(plot_df,
+                     observed_df[, c("Marker", "Estimate_Interaction")],
+                     by = "Marker", all.x = TRUE)
+  } else {
+    plot_df$Estimate_Interaction <- plot_df$Median_Beta_Boot
+  }
+
+  # Order by observed effect size (ascending — most negative at top)
+  plot_df$Marker <- factor(plot_df$Marker,
+                           levels = plot_df$Marker[order(plot_df$Estimate_Interaction)])
+
+  plot_df$Label <- sprintf("%s  (%.0f%% FDR<0.05)", plot_df$Marker, plot_df$Pct_FDR_Significant)
+
+  p <- ggplot(plot_df, aes(y = Marker)) +
+    geom_vline(xintercept = 0, linetype = "dashed", color = "gray50") +
+    geom_errorbarh(aes(xmin = CI_Lower_2.5, xmax = CI_Upper_97.5),
+                   height = 0.25, color = "gray30") +
+    geom_point(aes(x = Median_Beta_Boot), shape = 4, size = 2.5, color = "gray40") +
+    geom_point(aes(x = Estimate_Interaction), shape = 19, size = 3.5, color = "#B2182B") +
+    geom_text(aes(x = CI_Upper_97.5,
+                  label = sprintf("  %.0f%% FDR", Pct_FDR_Significant)),
+              hjust = 0, size = 3.2, color = "gray30") +
+    labs(
+      title    = title,
+      subtitle = "Red dot: observed beta | X: bootstrap median | Bar: 95% bootstrap CI",
+      x        = "Time x Group interaction (beta, hybrid scale)",
+      y        = NULL
+    ) +
+    theme_bw(base_size = 12) +
+    theme(
+      plot.title    = element_text(face = "bold", hjust = 0.5),
+      plot.subtitle = element_text(hjust = 0.5, color = "gray40"),
+      panel.grid.minor = element_blank(),
+      axis.text.y   = element_text(size = 11)
+    ) +
+    coord_cartesian(clip = "off") +
+    theme(plot.margin = margin(8, 60, 8, 8))
+
   return(p)
 }
